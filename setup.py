@@ -18,6 +18,7 @@ setup(name="merrin",
         "console_scripts": [
             "merrin=merrin.cli:main",
             "bnet2flexflux=merrin.bnet2flexflux:main",
+            "merrin-timeseries_generator=merrin.generators.timeseries:main",
         ],
     },
     classifiers=[
