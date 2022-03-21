@@ -8,6 +8,7 @@ setup(name="merrin",
     author_email = "kerian.thuillier@ens-rennes.fr",
     install_requires = [
         "clingo",
+        "ginsim",
         "pandas",
         "pulp",
         "python-libsbml",
@@ -16,6 +17,7 @@ setup(name="merrin",
     entry_points = {
         "console_scripts": [
             "merrin=merrin.cli:main",
+            "bnet2flexflux=merrin.bnet2flexflux:main",
         ],
     },
     classifiers=[
