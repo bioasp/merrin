@@ -7,6 +7,7 @@ setup(name="merrin",
     author = "Kerian Thuillier",
     author_email = "kerian.thuillier@ens-rennes.fr",
     install_requires = [
+        "bonesis",
         "clingo",
         "ginsim",
         "pandas",

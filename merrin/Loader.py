@@ -1,10 +1,3 @@
-#! /usr/bin/env python3
-# -*- coding: utf-8 -*-
-__author__ = "Kerian Thuillier"
-__email__ = "kerian.thuillier@ens-rennes.fr"
-
-#IMPORT#########################################################################
-
 import bonesis
 import pandas as pd
 import networkx as nx
@@ -12,15 +5,7 @@ from libsbml import SBMLReader
 from .Parameters import DATA_TYPE_COLUMN
 from .MetabolicNetworks import MetabolicNetwork
 
-#CODE###########################################################################
-
-
 def load_sbml(sbml_file: str):
-    """
-    Function: 
-    Params: 
-    Return: 
-    """
     sbmld = SBMLReader().readSBML(sbml_file)
     sbmlm = sbmld.getModel()
 
@@ -31,12 +16,6 @@ def load_sbml(sbml_file: str):
 
 
 def load_pkn(pkn_file: str, inputs):
-    """
-    Function: 
-    Params: 
-    Return: 
-    """
-
     pkn = nx.DiGraph()
     with open(pkn_file) as fp:
         for line in fp:
@@ -93,16 +72,3 @@ def load_simulations(files_path: str, k: int = 0, tag: str = None) -> pd.DataFra
             sim[DATA_TYPE_COLUMN] = tag
 
     return simulations
-
-
-def main():
-    """
-    Function: main function executing the project
-    Params: None
-    Return: None
-    """
-
-
-#RUN############################################################################
-if __name__ == '__main__':
-    main()

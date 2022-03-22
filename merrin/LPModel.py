@@ -7,6 +7,7 @@ __email__ = "kerian.thuillier@ens-rennes.fr"
 
 from pulp import (
     COIN_CMD,
+    PULP_CBC_CMD,
     LpStatus,
     LpMaximize,
     LpProblem,
@@ -16,6 +17,8 @@ from pulp import (
 )
 
 #AUXILIARY#FUNCTIONS##MODELS####################################################
+
+LP_SOLVER = COIN_CMD if COIN_CMD().available() else PULP_CBC_CMD
 
 
 def get_base_fba_lp_model(time, internal_metabolites, reactions, bounds, stoichiometry, obj, removeObj=False):
@@ -113,7 +116,7 @@ def add_maximised_forced_state(fba, f, reactions, reactions_states, bounds, epsi
 
 def solve_rfba(fba_lp_model, lp_variables, obj_reaction):
     # Coin Branch and Cut solver is used to solve the instanced model
-    solver = COIN_CMD(msg=0, timeLimit=5)
+    solver = LP_SOLVER(msg=0, timeLimit=5)
 
     fba_lp_model.solve(solver)
 
@@ -131,7 +134,7 @@ def solve_rfba(fba_lp_model, lp_variables, obj_reaction):
 
 def solve_lp_model(lp_model, lp_variables):
     # Coin Branch and Cut solver is used to solve the instanced model
-    solver = COIN_CMD(msg=0)
+    solver = LP_SOLVER(msg=0)
 
     lp_model.solve(solver)
 
