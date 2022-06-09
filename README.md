@@ -14,3 +14,7 @@ merrin --help
 ```
 
 See also https://github.com/bioasp/merrin-covert for a complete case study.
+
+## Contributors
+
+* Kerian Thuillier (main author) [@kthuillier](https://github.com/kthuillier)
