@@ -34,8 +34,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/kthuillier/merrin"
-Repository = "https://github.com/kthuillier/merrin/issues"
+Homepage = "https://github.com/bioasp/merrin"
+Repository = "https://github.com/bioasp/merrin"
+"Bug Tracker" = "https://github.com/bioasp/merrin/issues"
 
 [project.scripts]
 merrin = "merrin.app:main"
