@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "merrin"
+version = "2.0.0"
+authors = [
+  { name="Kerian Thuillier", email="kerian.thuillier@irisa.fr" },
+]
+description = "MERRIN: MEtabolic Regulation Rule INference."
+keywords = [
+  "Answer Set Programming",
+  "Flux Balance Analysis",
+  "Boolean Network",
+  "Regulatory Rules",
+  "Omics data"
+]
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = [
+    "merrinasp@git+https://github.com/kthuillier/merrinasp",
+    "clingo >=5.6.1",
+    "pandas",
+    "numpy",
+    "python-libsbml"
+]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: Unix",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Intended Audience :: Science/Research",
+]
+
+[project.urls]
+Homepage = "https://github.com/kthuillier/merrin"
+Repository = "https://github.com/kthuillier/merrin/issues"
+
+[project.scripts]
+merrin = "merrin.app:main"
+
+[tool.setuptools.package-data]
+merrin = ["py.typed"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

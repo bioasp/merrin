@@ -1,0 +1,82 @@
+[
+	{
+		"file": "timeseries/Fig5.csv",
+		"type": ["Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {
+				"Tc1": [0, 10.5],
+				"Tc2": [0, 10.5],
+				"To2": [0, 15],
+				"Th": [0, 5],
+				"Tf": [0, 5],
+				"Td": [0, 12],
+				"Te": [0, 12]
+			}
+		}
+	},
+	{
+		"file": "timeseries/Fig6.csv",
+		"type": ["Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {
+				"Tc1": [0, 10.5],
+				"Tc2": [0, 10.5],
+				"To2": [0, 15],
+				"Th": [0, 5],
+				"Tf": [0, 5],
+				"Td": [0, 12],
+				"Te": [0, 12]
+			}
+		}
+	},
+	{
+		"file": "timeseries/Fig7.csv",
+		"type": ["Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {
+				"Tc1": [0, 10.5],
+				"Tc2": [0, 10.5],
+				"To2": [0, 15],
+				"Th": [0, 5],
+				"Tf": [0, 5],
+				"Td": [0, 12],
+				"Te": [0, 12]
+			}
+		}
+	},
+	{
+		"file": "timeseries/Fig8.csv",
+		"type": ["Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {
+				"Tc1": [0, 10.5],
+				"Tc2": [0, 10.5],
+				"To2": [0, 15],
+				"Th": [0, 5],
+				"Tf": [0, 5],
+				"Td": [0, 12],
+				"Te": [0, 12]
+			}
+		}
+	},
+	{
+		"file": "timeseries/Fig9.csv",
+		"type": ["Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {
+				"Tc1": [0, 10.5],
+				"Tc2": [0, 10.5],
+				"To2": [0, 15],
+				"Th": [0, 5],
+				"Tf": [0, 5],
+				"Td": [0, 12],
+				"Te": [0, 12]
+			}
+		}
+	}
+]
