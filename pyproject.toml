@@ -42,7 +42,10 @@ Repository = "https://github.com/bioasp/merrin"
 merrin = "merrin.app:main"
 
 [tool.setuptools.package-data]
-merrin = ["py.typed"]
+merrin = [
+  "py.typed",
+  "asp/model/learn.lp"  
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
