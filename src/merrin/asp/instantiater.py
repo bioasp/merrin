@@ -2,12 +2,16 @@
 # Imports
 # ==============================================================================
 from __future__ import annotations
+
 from typing import Iterable
+from warnings import simplefilter
 from numpy import isnan
-from pandas import DataFrame, Series
+from pandas import DataFrame, Series, errors
 
 import merrin.asp.template as Template
 from merrin.datastructure import MetabolicNetwork, Observation
+
+simplefilter(action="ignore", category=errors.PerformanceWarning)
 
 
 # ==============================================================================
@@ -20,19 +24,19 @@ def instantiate_networks(mn: MetabolicNetwork, objective: str,
     # Instantiate ASP constraints for the metabolic network
     # --------------------------------------------------------------------------
     assert mn.irreversible
-    mn_asp: list[str] = __instantiate_mn(mn, objective)
+    mn_asp: list[str] = instantiate_mn(mn, objective)
     # --------------------------------------------------------------------------
     # Instantiate ASP constraints for the PKN
     # --------------------------------------------------------------------------
     # ~ Instantiate ASP constraints
-    pkn_asp: list[str] = __instantiate_pkn(pkn, max_clause=max_clause)
+    pkn_asp: list[str] = instantiate_pkn(pkn, max_clause=max_clause)
     # --------------------------------------------------------------------------
     # Return
     # --------------------------------------------------------------------------
     return mn_asp + pkn_asp
 
 
-def __instantiate_mn(mn: MetabolicNetwork, objective: str) -> list[str]:
+def instantiate_mn(mn: MetabolicNetwork, objective: str) -> list[str]:
     mn_asp: list[str] = [Template.header('Metabolic Network', '=')]
     # --------------------------------------------------------------------------
     # Objective
@@ -82,13 +86,22 @@ def __instantiate_mn(mn: MetabolicNetwork, objective: str) -> list[str]:
         for (rf, rr) in reversible_reactions:
             mn_asp.append(Template.MetabolicNetwork.reversible(rf, rr))
     # --------------------------------------------------------------------------
+    # Genes
+    # --------------------------------------------------------------------------
+    if len(mn.genes()) != 0:
+        mn_asp.append(Template.header('Genes', '-'))
+        mn_asp.extend(
+            Template.MetabolicNetwork.gene(g)
+            for g in sorted(mn.genes())
+        )
+    # --------------------------------------------------------------------------
     # Return
     # --------------------------------------------------------------------------
     return mn_asp
 
 
-def __instantiate_pkn(pkn: Iterable[tuple[str, int, str]],
-                      max_clause: int = 20) -> list[str]:
+def instantiate_pkn(pkn: Iterable[tuple[str, int, str]],
+                    max_clause: int = 20) -> list[str]:
     pkn_asp: list[str] = [Template.header('Prior Knowledge Network', '=')]
     # Convert the PKN to a more convenient form
     formatted_pkn: dict[str, list[tuple[str, int]]] = {}
@@ -155,6 +168,27 @@ def __instantiate_observation(mn: MetabolicNetwork, observation: Observation,
             for n, v in observation.cstr_mutations.items()
             for n_ in mn.previously_reversible_reactions().get(n, [n])
         )
+    if len(observation.cstr_bounds) != 0:
+        observation_asp.append(
+            Template.header('Experimental Bounds', '-')
+        )
+        for n, (lb, ub) in observation.cstr_bounds.items():
+            if n in mn.previously_reversible_reactions():
+                nf, nr = mn.previously_reversible_reactions()[n]
+                observation_asp.extend([
+                    Template.TimeSeries.constraint_bounds(
+                        observation_id, nf, 0, ub
+                    ),
+                    Template.TimeSeries.constraint_bounds(
+                        observation_id, nr, 0, -lb
+                    )
+                ])
+            else:
+                observation_asp.append(
+                    Template.TimeSeries.constraint_bounds(
+                        observation_id, n, 0, ub
+                    )
+                )
     # --------------------------------------------------------------------------
     # Convert observation data according to the irreversible metabolic network
     # --------------------------------------------------------------------------
@@ -165,7 +199,7 @@ def __instantiate_observation(mn: MetabolicNetwork, observation: Observation,
         if r in data.columns:
             data[rf] = data.loc[:, r].apply(lambda x:  x if x > 0 else 0)
             data[rr] = data.loc[:, r].apply(lambda x: -x if x < 0 else 0)
-            data.drop(columns=[r])
+            data.drop(columns=[r], inplace=True)
     # --------------------------------------------------------------------------
     # Observation of each timestep
     # --------------------------------------------------------------------------

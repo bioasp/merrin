@@ -35,7 +35,7 @@ class MetabolicNetwork:
         self.__metabolites: set[str] = set()
         self.__reactions: set[str] = set()
         self.__exchanges: dict[str, str | None] = {}
-        self.__S: dict[tuple[str, str], float] = {}
+        self.__coeff: dict[tuple[str, str], float] = {}
         self.__bounds: dict[str, tuple[float, float]] = {}
         self.__reversible_reactions: set[str] = set()
 
@@ -85,10 +85,13 @@ class MetabolicNetwork:
         return self.__bounds
 
     def stoichiometry(self: MetabolicNetwork) -> dict[tuple[str, str], float]:
-        return self.__S
+        return self.__coeff
 
     def is_reversible(self: MetabolicNetwork, r: str) -> bool:
         return r in self.__reversible_reactions
+
+    def genes(self: MetabolicNetwork) -> set[str]:
+        return self.__genes
 
     # ==========================================================================
     # Setters
@@ -102,25 +105,12 @@ class MetabolicNetwork:
     # ==========================================================================
     # Auxiliary functions
     # ==========================================================================
-    def copy(self: MetabolicNetwork) -> MetabolicNetwork:
-        mn_: MetabolicNetwork = MetabolicNetwork()
-        mn_.__metabolites = self.__metabolites.copy()
-        mn_.__reactions = self.__reactions.copy()
-        mn_.__exchanges = self.__exchanges.copy()
-        mn_.__S = self.__S.copy()
-        mn_.__bounds = self.__bounds.copy()
-        mn_.__genes = self.__genes.copy()
-        mn_.__genes_association = self.__genes_association.copy()
-        mn_.__reversible_reactions_mapping = \
-            self.__reversible_reactions_mapping.copy()
-        return mn_
-
     def to_irreversible(self: MetabolicNetwork) -> MetabolicNetwork:
         def __irreversible_renaming(r: str) -> tuple[str, str]:
             return f'{r}_forward', f'{r}_reverse'
 
-        mn_: MetabolicNetwork = self.copy()
-        mn_.irreversible = True
+        if self.irreversible:
+            return self
         # ----------------------------------------------------------------------
         # Update Exchange reactions
         # ----------------------------------------------------------------------
@@ -129,11 +119,11 @@ class MetabolicNetwork:
             if not self.is_reversible(r):
                 continue
             rf, rr = __irreversible_renaming(r)
-            mn_.__reversible_reactions_mapping[r] = (rf, rr)
-            if self.__S[(m, r)] < 0:  # case: m is a reactant
-                mn_.__exchanges[m] = rf
+            self.__reversible_reactions_mapping[r] = (rf, rr)
+            if self.__coeff[(m, r)] < 0:  # case: m is a reactant
+                self.__exchanges[m] = rf
             else:  # case: m is a product
-                mn_.__exchanges[m] = rr
+                self.__exchanges[m] = rr
         # ----------------------------------------------------------------------
         # Update Reactions
         # ----------------------------------------------------------------------
@@ -141,38 +131,39 @@ class MetabolicNetwork:
             if not self.is_reversible(r):
                 continue
             rf, rr = __irreversible_renaming(r)
-            mn_.__reversible_reactions_mapping[r] = (rf, rr)
+            self.__reversible_reactions_mapping[r] = (rf, rr)
             # ------------------------------------------------------------------
             # Update reaction set
             # ------------------------------------------------------------------
-            mn_.__reactions.remove(r)
-            mn_.__reactions.add(rf)
-            mn_.__reactions.add(rr)
+            self.__reactions.remove(r)
+            self.__reactions.add(rf)
+            self.__reactions.add(rr)
             # ------------------------------------------------------------------
             # Update bounds
             # ------------------------------------------------------------------
-            del mn_.__bounds[r]
-            mn_.__bounds[rf] = (0, self.__bounds[r][1])
-            mn_.__bounds[rr] = (0, -self.__bounds[r][0])
+            del self.__bounds[r]
+            self.__bounds[rf] = (0, self.__bounds[r][1])
+            self.__bounds[rr] = (0, -self.__bounds[r][0])
             # ------------------------------------------------------------------
             # Update stoichiometry
             # ------------------------------------------------------------------
-            for m, r_ in self.__S:
+            for m, r_ in self.__coeff:
                 if r != r_:
                     continue
-                del mn_.__S[(m, r)]
-                mn_.__S[(m, rf)] = self.__S[(m, r)]
-                mn_.__S[(m, rr)] = -self.__S[(m, r)]
+                del self.__coeff[(m, r)]
+                self.__coeff[(m, rf)] = self.__coeff[(m, r)]
+                self.__coeff[(m, rr)] = -self.__coeff[(m, r)]
             # ------------------------------------------------------------------
             # Update gene association
             # ------------------------------------------------------------------
-            del mn_.__genes_association[r]
-            mn_.__genes_association[rf] = self.__genes_association[r]
-            mn_.__genes_association[rr] = self.__genes_association[r]
+            del self.__genes_association[r]
+            self.__genes_association[rf] = self.__genes_association[r]
+            self.__genes_association[rr] = self.__genes_association[r]
         # ----------------------------------------------------------------------
         # Return
         # ----------------------------------------------------------------------
-        return mn_
+        self.irreversible = True
+        return self
 
     # ==========================================================================
     # Parsing
@@ -201,7 +192,7 @@ class MetabolicNetwork:
             return children[0]
         if name == 'and':
             return '(' + ' & '.join(children) + ')'
-        elif name == 'or':
+        if name == 'or':
             return '(' + ' | '.join(children) + ')'
         print('Unknown fbc operator')
         assert False
@@ -259,7 +250,7 @@ class MetabolicNetwork:
             for reactant in reaction.getListOfReactants():
                 stoechiometry = float(reactant.getStoichiometry())
                 reactant_name: str = reactant.getSpecies()
-                mn.__S[(reactant_name, name)] = -stoechiometry
+                mn.__coeff[(reactant_name, name)] = -stoechiometry
                 if reactant_name in mn.__exchanges:
                     mn.__exchanges[reactant_name] = name
 
@@ -267,7 +258,7 @@ class MetabolicNetwork:
             for product in reaction.getListOfProducts():
                 stoechiometry = float(product.getStoichiometry())
                 product_name: str = product.getSpecies()
-                mn.__S[(product_name, name)] = stoechiometry
+                mn.__coeff[(product_name, name)] = stoechiometry
                 if product_name in mn.__exchanges:
                     mn.__exchanges[product_name] = name
 

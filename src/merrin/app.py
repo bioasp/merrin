@@ -4,11 +4,9 @@
 from __future__ import annotations
 from os import path, makedirs
 from argparse import Namespace, ArgumentParser
-from datetime import datetime
-from pandas import DataFrame
 
 from merrin.learn import MerrinLearner
-from merrin.datastructure import Observation
+from merrin.datastructure import Observation, MetabolicNetwork
 
 
 # ==============================================================================
@@ -55,14 +53,6 @@ def parse() -> Namespace:
     # --------------------------------------------------------------------------
     # Optional arguments
     # --------------------------------------------------------------------------
-    parser.add_argument(
-        '-out', '--output-file',
-        help='Output CSV file',
-        required=False,
-        default=None,
-        dest='output',
-        type=str
-    )
     parser.add_argument(
         '--lpsolver',
         help='Linear solver to use (default: glpk)',
@@ -115,56 +105,38 @@ def main() -> None:
     # --------------------------------------------------------------------------
     # Load inputs
     # --------------------------------------------------------------------------
+    # ~ PKN
     pkn: list[tuple[str, int, str]] = []
     with open(args.pkn, 'r', encoding='utf-8') as file:
         for line in file.readlines():
             line = line.strip()
             u, s, v = line.split('\t')
             pkn.append((u, int(s), v))
+    # ~ Observations
     observations: list[Observation] = Observation.load_json(args.obs)
+    # ~ MN
+    mn: MetabolicNetwork = MetabolicNetwork.read_sbml(args.sbml)
     # --------------------------------------------------------------------------
     # Initialise Merrin Learn object
     # --------------------------------------------------------------------------
-    learner: MerrinLearner = MerrinLearner(
-        args.sbml,
-        args.obj,
-        pkn
-    )
-    # ~ Set optimisation mode
-    if args.optimisation == 'all':
-        learner.set_optimisation(MerrinLearner.Optimisation.ALL)
-    elif args.optimisation == 'subsetmin':
-        learner.set_optimisation(MerrinLearner.Optimisation.SUBSETMIN)
-    # ~ Set projection mode
+    learner: MerrinLearner = MerrinLearner()
+    learner.load_instance(mn, args.obj, pkn, observations)
     if args.projection == 'network':
-        learner.set_projection(MerrinLearner.Projection.NETWORK)
+        learner.learn(
+            nbsol=0, display=True, lp_solver=args.lpsolver,
+            max_error=0.3, max_gap=10, timelimit=args.timelimit,
+            subsetmin=args.optimisation == 'subsetmin'
+        )
     elif args.projection == 'node':
-        learner.set_projection(MerrinLearner.Projection.NODE)
-    results: DataFrame = learner.learn(
-        observations,
-        timelimit=args.timelimit,
-        lpsolver=args.lpsolver
-    )
-    # --------------------------------------------------------------------------
-    # Export Output CSV file
-    # --------------------------------------------------------------------------
-    output_csv: str | None = args.output
-    if output_csv is None:
-        # ~ Timestamp
-        now: datetime = datetime.now()
-        timestamp: str = now.strftime("%Y%m%d-%H%M%S")
-        output_csv = \
-            f'merrin-{args.optimisation}-{args.projection}-{timestamp}.csv'
-    create_folder(path.dirname(output_csv))
-    results.to_csv(
-        output_csv,
-        sep=',',
-        index=False
-    )
+        learner.learn_per_node(
+            nbsol=0, display=True, lp_solver=args.lpsolver,
+            max_error=0.3, max_gap=10, timelimit=args.timelimit,
+            subsetmin=args.optimisation == 'subsetmin'
+        )
 
 
 # ==============================================================================
-#
+# Main
 # ==============================================================================
 if __name__ == '__main__':
     main()

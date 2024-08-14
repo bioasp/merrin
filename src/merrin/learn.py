@@ -2,10 +2,9 @@
 # Imports
 # ==============================================================================
 from __future__ import annotations
-from typing import Literal, Iterable
-from enum import Enum
+from dataclasses import dataclass
+from typing import Any, Literal, Iterable
 
-from pandas import DataFrame
 from clingo import Control, Model
 
 from merrinasp.theory.language import THEORY_LANGUAGE, rewrite
@@ -13,11 +12,13 @@ from merrinasp.theory.propagator import LpPropagator
 
 from merrin.datastructure import MetabolicNetwork, Observation
 from merrin.asp import (
-    instantiate_networks,
+    instantiate_mn,
+    instantiate_pkn,
     instantiate_observations,
     instantiate_parameters,
     ASP_MODEL_LEARN
 )
+
 
 # ==============================================================================
 # Class: MerrinLearner
@@ -25,226 +26,214 @@ from merrin.asp import (
 # Object used to infer metabolic regulatory rules from timeseries data
 class MerrinLearner:
 
-    def __init__(self: MerrinLearner, sbml: str, objective: str,
-                 pkn: Iterable[tuple[str, int, str]], max_clause: int = 20,
-                 mn_bounds: Iterable[tuple[str, float, float]] | None = None) \
-            -> None:
-        # ----------------------------------------------------------------------
-        # Load metabolic network
-        # ----------------------------------------------------------------------
-        self.__mn: MetabolicNetwork = MetabolicNetwork.read_sbml(sbml)
-        if mn_bounds is not None:
-            for r, lb, ub in mn_bounds:
-                self.__mn.set_bound(r, lb, ub)
-        self.__mn = self.__mn.to_irreversible()
-        self.__renamed_reactions: dict[str, tuple[str, str]] = {
-            r_: (r, f'[{r} < 0]') if r_ == rr else (r, f'[{r} > 0]')
-            for r, (rr, rf) in \
-                self.__mn.previously_reversible_reactions().items()
-            for r_ in (rr, rf)
-        }
-        node_to_rename: dict[str, tuple[str, str]] = \
-            self.__mn.previously_reversible_reactions()
-        # ~ Transfert the MN irreversibility conversion to the objective
-        self.__objective: str = objective if objective not in node_to_rename \
-                                    else node_to_rename[objective][1]
-        # ~ Transfert the MN irreversibility conversion to the PKN
-        self.__pkn: set[tuple[str, int, str]] = set()
-        for u, s, v in pkn:
-            u_l: Iterable[str] = \
-                [u] if u not in node_to_rename else node_to_rename[u]
-            v_l: Iterable[str] = \
-                [v] if v not in node_to_rename else node_to_rename[v]
-            for u_ in u_l:
-                for v_ in v_l:
-                    self.__pkn.add((u_, s, v_))
-        # ----------------------------------------------------------------------
-        # Instantiate ASP constraints
-        # ----------------------------------------------------------------------
-        self.__constraints: list[str] = []
-        self.__constraints.extend(instantiate_networks(
-            self.__mn,
-            objective,
-            pkn,
-            max_clause=max_clause
-        ))
-        self.__projection_constraints: list[str] = []
-        self.__observations_constraints: list[str] = []
-        # ----------------------------------------------------------------------
-        # Set default solving parameters
-        # ----------------------------------------------------------------------
+    @dataclass
+    class __Config:
+        max_clause: int = 20
+        max_gap: int = 10
+        max_error: float = 0.1
+        lp_epsilon: float = 10**-5
+        timelimit: int = -1
+        lp_solver: Literal['glpk', 'gurobi'] = 'glpk'
+
+    # ==========================================================================
+    # Initialisation
+    # ==========================================================================
+    def __init__(self: MerrinLearner) -> None:
+        # ~ Internal state
+        self.__instantiated: bool = False
         self.__propagator: LpPropagator | None = None
-        self.__projection: MerrinLearner.Projection = \
-            MerrinLearner.Projection.NETWORK
-        self.__optimisation: MerrinLearner.Optimisation = \
-            MerrinLearner.Optimisation.SUBSETMIN
+        # ~ ASP
+        self.__constraints: list[str] = []
+        self.__constraints_extended: list[str] = []
+        # ~ Cache
+        self.__pkn: set[tuple[str, int, str]] = set()
+        self.__renamed_reactions: dict[str, tuple[str, str]] = {}
 
     # ==========================================================================
-    # Parameters
+    # Loaders
     # ==========================================================================
-    class Projection(Enum):
-        NETWORK = 0
-        NODE = 1
+    def load_instance(self: MerrinLearner, mn: MetabolicNetwork,
+                      objective: str, pkn: Iterable[tuple[str, int, str]],
+                      observations: Iterable[Observation],
+                      epsilon: float = 10**-9) -> None:
+        # ~ Save PKN
+        self.__pkn.clear()
+        self.__pkn.update(pkn)
+        # ~ Pre-process Metabolic Network
+        mn.to_irreversible()
+        self.__renamed_reactions = {
+            r_: (r, f'[{r} < 0]') if r_ == rr else (r, f'[{r} > 0]')
+            for r, (rf, rr) in mn.previously_reversible_reactions().items()
+            for r_ in (rf, rr)
+        }
+        assert mn.irreversible
+        assert objective in mn.reactions()
+        # ~ Build ASP constraints
+        self.__build_asp(mn, objective, observations, epsilon)
+        # ~ Update the instantiated status
+        self.__instantiated = True
 
-    class Optimisation(Enum):
-        ALL = 1
-        SUBSETMIN = 2
-
-    # ==========================================================================
-    # Solving
-    # ==========================================================================
-    def learn(self: MerrinLearner, observations: Iterable[Observation],
-              nbsol: int = 0, max_gap: int = 10, max_error: float = 0.1,
-              lp_epsilon: float = 10**-5, timelimit: int = -1,
-              lpsolver: Literal['glpk', 'gurobi'] = 'glpk') \
-            -> DataFrame:
-        # ----------------------------------------------------------------------
-        # Instantiate missing ASP constraints
-        # ----------------------------------------------------------------------
-        self.__observations_constraints.clear()
-        self.__projection_constraints.clear()
-
-        # ~ Observation constraints
-        self.__observations_constraints.extend(
-            instantiate_observations(
-                self.__mn, self.__objective, observations, epsilon=10**-9
-            )
+    def __build_asp(self: MerrinLearner, mn: MetabolicNetwork, objective: str,
+                    observations, epsilon) -> None:
+        self.__constraints.clear()
+        self.__constraints.extend(instantiate_mn(mn, objective))
+        self.__constraints.extend(
+            instantiate_observations(mn, objective, observations, epsilon)
         )
-        # ~ Parameters constraints
-        self.__observations_constraints.extend(
-            instantiate_parameters(max_gap, max_error, lp_epsilon)
-        )
-        # ----------------------------------------------------------------------
-        # Launch the solving process
-        # ----------------------------------------------------------------------
-        if self.__projection == MerrinLearner.Projection.NETWORK:
-            return self.__learn_rn(nbsol, timelimit, lpsolver)
-        if self.__projection == MerrinLearner.Projection.NODE:
-            return self.__learn_nodes(nbsol, timelimit, lpsolver)
-        assert False
 
-    def __learn_rn(self: MerrinLearner, nbsol: int = 0, timelimit: int = -1,
-                   lpsolver: Literal['glpk', 'gurobi'] = 'glpk') \
-            -> DataFrame:
-        # ----------------------------------------------------------------------
-        # Initialise the ASP solver `clingo`
-        # ----------------------------------------------------------------------
+    def __build_asp_pkn(self: MerrinLearner,
+                        config: MerrinLearner.__Config) -> None:
+        self.__constraints_extended.clear()
+        self.__constraints_extended.extend(
+            instantiate_parameters(config.max_gap,
+                                   config.max_error,
+                                   config.lp_epsilon)
+        )
+        self.__constraints_extended.extend(
+            instantiate_pkn(self.__pkn, config.max_clause)
+        )
+
+    def __read_config(self: MerrinLearner,
+                      kwargs: dict[str, Any]) -> MerrinLearner.__Config:
+        # ~ Parse arguments
+        max_clause: int = 20
+        max_gap: int = kwargs.get('max_gap', 10)
+        max_error: float = kwargs.get('max_error', 0.1)
+        lp_epsilon: float = kwargs.get('lp_epsilon', 10**-5)
+        timelimit: int = kwargs.get('timelimit', -1)
+        lp_solver: Literal['glpk', 'gurobi'] = 'glpk'
+        if kwargs.get('lp_solver', 'glpk') in ['glpk', 'gurobi']:
+            lp_solver = kwargs.get('lp_solver', 'glpk')
+        # ~ Build dataclass
+        return MerrinLearner.__Config(max_clause, max_gap, max_error,
+                                      lp_epsilon, timelimit, lp_solver)
+
+    def __init_clingo(self: MerrinLearner, nbsol: int, subsetmin: bool,
+                      lp_solver: Literal['glpk', 'gurobi']) -> Control:
         # ~ Solving options
-        options: list[str] = self.__get_options(nbsol)
-        # Initialize `clingo` controller
-        ctl = Control(options)
-        self.__propagator = LpPropagator(lpsolver)
+        options: list[str] = self.__get_options(nbsol, subsetmin)
+        # ~ Propagator
+        self.__propagator = LpPropagator(lp_solver)
         self.__propagator.lazy(False)
         self.__propagator.show_lpassignment(False)
         self.__propagator.strict_forall_check(False)
+        # ~ `clingo` Controller
+        ctl = Control(options)
         ctl.register_propagator(self.__propagator)  # type: ignore
-        # ----------------------------------------------------------------------
-        # Build and solve the ASP program
-        # ----------------------------------------------------------------------
-        # ~ Load the theory language
+        # ~ Load the theory language and ASP model
         ctl.add("base", [], THEORY_LANGUAGE)
-        # ~ Add all constraints
-        ctl.add("base", [], '\n'.join(self.__constraints +
-                                      self.__observations_constraints +
-                                      self.__projection_constraints))
-        # ~ Load the model
         rewrite(ctl, [ASP_MODEL_LEARN])
-        # ~ Add Show constraint
+        ctl.add("base", [], '\n'.join(self.__constraints +
+                                      self.__constraints_extended))
+        return ctl
+
+    def __solve_asp(self: MerrinLearner, ctl: Control, timelimit: int,
+                    display: bool) -> list[list[tuple[str, str]]]:
+        results: list[list[tuple[str, str]]] = []
+
+        if timelimit == -1:
+            ctl.solve(on_model=lambda m: self.__on_model(results, m, display))
+            return results
+
+        with ctl.solve(on_model=lambda m: self.__on_model(results, m, display),
+                       async_=True) as handle:  # type: ignore
+            handle.wait(timelimit)
+            handle.cancel()
+            handle.get()
+
+        return results
+
+    def __on_model(self: MerrinLearner, results: list[list[tuple[str, str]]],
+                   model: Model, display: bool = False) -> None:
+        if not model.optimality_proven:
+            return
+        nodes: set[str] = {n for _, _, n in self.__pkn}
+        rules: dict[str, str] = self.__parse_clauses(model)
+        results.append(sorted(rules.items()))
+        if display:
+            print(','.join([rules.get(n, '1') for n in sorted(nodes)]),
+                  flush=True)
+
+    # ==========================================================================
+    # Rules projection mode
+    # ==========================================================================
+    def learn(self: MerrinLearner, nbsol: int = 0, subsetmin: bool = False,
+              display: bool = False, **kwargs) -> list[list[tuple[str, str]]]:
+        assert self.__instantiated
+        # ~ Get Config
+        config: MerrinLearner.__Config = self.__read_config(kwargs)
+        # ~ Build Parameters and PKN ASP
+        self.__build_asp_pkn(config)
+        # ~ Initialise the ASP solver `clingo`
+        ctl: Control = self.__init_clingo(nbsol, subsetmin, config.lp_solver)
         ctl.add("base", [], '\n'.join([
             '#show.',
             '#show clause/4.'
         ]))
         # ~ Ground the ASP program
         ctl.ground([('base', [])])
+        # ~ Print CSV header
+        if display:
+            nodes: set[str] = {n for _, _, n in self.__pkn}
+            columns: list[str] = [
+                self.__renamed_reactions.get(n, (n, n))[1]
+                for n in sorted(nodes)
+            ]
+            print(','.join(columns), flush=True)
         # ~ Solve
-        nodes: set[str] = {n for _, _, n in self.__pkn}
-        results: DataFrame = DataFrame(columns=list(sorted(nodes)))
-        if timelimit == -1:
-            ctl.solve(on_model=lambda m: self.__on_model_rn(results, m))
-        else:
-            with ctl.solve(on_model=lambda m: self.__on_model_rn(results, m),
-                           async_=True) as handle:  # type: ignore
-                handle.wait(timelimit)
-                handle.cancel()
-                handle.get()
-        return results
+        return self.__solve_asp(ctl, config.timelimit, display)
 
-    def __learn_nodes(self: MerrinLearner, nbsol: int = 0, timelimit: int = -1,
-                      lpsolver: Literal['glpk', 'gurobi'] = 'glpk') \
-            -> DataFrame:
+    def learn_per_node(self: MerrinLearner, nbsol: int = 0,
+                       subsetmin: bool = False, display: bool = False,
+                       **kwargs) -> list[tuple[str, list[str]]]:
+        assert self.__instantiated
+        # ~ Get Config
+        config: MerrinLearner.__Config = self.__read_config(kwargs)
+        # ~ Build Parameters and PKN ASP
+        self.__build_asp_pkn(config)
+        # ~ Initialise the ASP solver `clingo`
         nodes: set[str] = {n for _, _, n in self.__pkn}
-        results: DataFrame = DataFrame(columns=list(sorted(nodes)))
-        options: list[str] = self.__get_options(nbsol)
+        results: list[tuple[str, list[str]]] = []
+        # ~ Print CSV header
+        if display:
+            columns: list[str] = [
+                self.__renamed_reactions.get(n, (n, n))[1]
+                for n in sorted(nodes)
+            ]
+            print(','.join(columns), flush=True)
+        first_iter: bool = True
         for n in sorted(nodes):
-            # Initialize `clingo` controller
-            ctl = Control(options)
-            self.__propagator = LpPropagator(lpsolver)
-            self.__propagator.lazy(False)
-            self.__propagator.show_lpassignment(False)
-            self.__propagator.strict_forall_check(False)
-            ctl.register_propagator(self.__propagator)  # type: ignore
-            # Solve for the node `n`
-            n_rules = self.__learn_node(ctl, n, timelimit=timelimit)
-            results[n] = [';'.join(sorted(n_rules))]
+            ctl: Control = self.__init_clingo(nbsol, subsetmin,
+                                              config.lp_solver)
+            ctl.add("base", [], '\n'.join([
+                '#show.',
+                f'#show clause(N,C,A,V): clause(N,C,A,V), N="{n}".'
+            ]))
+            # ~ Ground the ASP program
+            ctl.ground([('base', [])])
+            # ~ Solve
+            rules_for_n: list[list[tuple[str, str]]] = self.__solve_asp(
+                ctl, config.timelimit, False
+            )
+            # ~ Add cst
+            rules = sorted([rule[0][1] if len(rule) > 0 else '1'
+                            for rule in rules_for_n])
+            results.append((n, rules))
+            if display:
+                if first_iter:
+                    first_iter = False
+                    print(";".join(rules), end='', flush=True)
+                    continue
+                print(',' + ";".join(rules), end='', flush=True)
+        if display:
+            print('', flush=True)
         return results
-
-    def __learn_node(self: MerrinLearner, ctl: Control, n: str,
-                     timelimit: int = -1) -> list[str]:
-        # ~ Load the theory language
-        ctl.add("base", [], THEORY_LANGUAGE)
-        # ~ Add all constraints
-        ctl.add("base", [], '\n'.join(self.__constraints +
-                                      self.__observations_constraints +
-                                      self.__projection_constraints))
-        # ~ Load the model
-        rewrite(ctl, [ASP_MODEL_LEARN])
-        # ~ Add Show constraint
-        ctl.add("base", [], '\n'.join([
-            '#show.',
-            f'#show clause(N,C,A,V): clause(N,C,A,V), N="{n}".'
-        ]))
-        # ~ Ground the ASP program
-        ctl.ground([('base', [])])
-        # ~ Solve
-        results: list[str] = []
-        if timelimit == -1:
-            ctl.solve(on_model=lambda m: self.__on_model_node(results, m))
-        else:
-            with ctl.solve(on_model=lambda m: self.__on_model_node(results, m),
-                           async_=True) as handle:  # type: ignore
-                handle.wait(timelimit)
-                handle.cancel()
-                handle.get()
-        return results
-
-    # --------------------------------------------------------------------------
-    # Auxiliary ASP functions
-    # --------------------------------------------------------------------------
-    def __on_model_rn(self: MerrinLearner, results: DataFrame,
-                      model: Model) -> None:
-        if not model.optimality_proven:
-            return
-        nodes: set[str] = {n for _, _, n in self.__pkn}
-        rules: dict[str, str] = self.__parse_clauses(model)
-        results.loc[len(results.index)] = \
-            [rules.get(n, '1') for n in sorted(nodes)]
-
-    def __on_model_node(self: MerrinLearner, results: list[str],
-                        model: Model) -> None:
-        if not model.optimality_proven:
-            return
-        rules: dict[str, str] = self.__parse_clauses(model)
-        if len(rules) == 0:
-            results.append('1')
-        else:
-            for _, v in rules.items():
-                results.append(v)
 
     # ==========================================================================
     # Clingo output parsing
     # ==========================================================================
     def __parse_clauses(self: MerrinLearner, model: Model) -> dict[str, str]:
-                # ~ Extract clauses from ASP solutions
+        # ~ Extract clauses from ASP solutions
         clauses: dict[str, dict[int, list[str]]] = {}
         for atom in model.symbols(shown=True):
             assert atom.name == 'clause' and len(atom.arguments) == 4
@@ -270,8 +259,6 @@ class MerrinLearner:
             rule: str = ' | '.join(rule_list)
             if len(rule_list) > 1:
                 rule = f'({rule})'
-            if n in self.__renamed_reactions:
-                n = self.__renamed_reactions[n][0]
             rules[n] = rule
         return rules
 
@@ -279,39 +266,25 @@ class MerrinLearner:
     # Setters / Getters
     # ==========================================================================
     # --------------------------------------------------------------------------
-    # Setters
-    # --------------------------------------------------------------------------
-    def set_projection(self: MerrinLearner, mode: MerrinLearner.Projection) \
-            -> None:
-        self.__projection = mode
-
-    def set_optimisation(self: MerrinLearner,
-                         mode: MerrinLearner.Optimisation) -> None:
-        self.__optimisation = mode
-
-    # --------------------------------------------------------------------------
     # Getters
     # --------------------------------------------------------------------------
-    def __get_options(self: MerrinLearner, nbsol: int = 0) -> list[str]:
+    def __get_options(self: MerrinLearner, nbsol: int = 0,
+                      subsetmin: bool = False) -> list[str]:
         options: list[str] = [
             f'-n {nbsol}', '-t 1', '--project',
-            '--opt-mode=optN', '--opt-strategy=usc',
-            '--heuristic=Domain', '-c bounded_nonreach=0'
+            '--opt-mode=optN', '--opt-strategy=usc'
         ]
-        if self.__optimisation == MerrinLearner.Optimisation.SUBSETMIN:
-            options += ['--enum-mode=domRec', '--dom-mod=5,16']
+        if subsetmin:
+            options += ['--enum-mode=domRec', '--dom-mod=5,16',
+                        '--heuristic=Domain', '-c bounded_nonreach=0']
         return options
 
-    def statistics(self: MerrinLearner) -> None:
-        raise NotImplementedError()
-
-    def get_model(self: MerrinLearner) -> tuple[str, str]:
-        cmd: str = ''  # TODO: auto compute the bash command
+    def get_model(self: MerrinLearner) -> str:
         model: str = '\n'.join(
             self.__constraints +
-            self.__observations_constraints
+            self.__constraints_extended
         )
         with open(ASP_MODEL_LEARN, 'r', encoding='utf-8') as file:
             for line in file.readlines():
                 model += '\n' + line.strip()
-        return (cmd, model)
+        return model

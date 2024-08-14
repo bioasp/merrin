@@ -77,6 +77,10 @@ class MetabolicNetwork:
     @classmethod
     def objective(cls, r: str) -> str:
         return f'objective("{r}").'
+    
+    @classmethod
+    def gene(cls, g: str) -> str:
+        return f'gene("{g}").'
 
 
 # ------------------------------------------------------------------------------

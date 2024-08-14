@@ -18,15 +18,15 @@ OBSERVATIONS="${SD}/ecoli-small/timeseries_kft.json"
 # ==============================================================================
 # MERRIN INPUTS -- OPTIONAL
 # ==============================================================================
-OPTIMISATION="subsetmin"      # Optimisation mode, either `all` or `subsetmin`
+OPTIMISATION="all"      # Optimisation mode, either `all` or `subsetmin`
 PROJECTION="network"    # Projection mode, either `network` or `node`
 OUTPUT_CSV="${SD}/merrin-ecoli-small.csv"
 
 # ==============================================================================
 # Start MERRIN
 # ==============================================================================
+echo "Regulatory rules will been saved in: ${OUTPUT_CSV}"
 merrin \
     -sbml ${SBML} -pkn ${PKN} -obj ${OBJ} -obs ${OBSERVATIONS} \
     --projection ${PROJECTION} --optimisation ${OPTIMISATION} \
-    -out ${OUTPUT_CSV}
-echo "Regulatory rules have been saved in: ${OUTPUT_CSV}"
+        | tee ${OUTPUT_CSV}

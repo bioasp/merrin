@@ -6,6 +6,8 @@ from os import path
 from merrin.asp.instantiater import (
     instantiate_parameters,
     instantiate_networks,
+    instantiate_mn,
+    instantiate_pkn,
     instantiate_observations
 )
 
