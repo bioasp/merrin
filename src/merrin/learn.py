@@ -56,9 +56,6 @@ class MerrinLearner:
                       objective: str, pkn: Iterable[tuple[str, int, str]],
                       observations: Iterable[Observation],
                       epsilon: float = 10**-9) -> None:
-        # ~ Save PKN
-        self.__pkn.clear()
-        self.__pkn.update(pkn)
         # ~ Pre-process Metabolic Network
         mn.to_irreversible()
         self.__renamed_reactions = {
@@ -68,6 +65,13 @@ class MerrinLearner:
         }
         assert mn.irreversible
         assert objective in mn.reactions()
+        # ~ Save PKN
+        self.__pkn.clear()
+        for u, s, v in pkn:
+            for u_ in mn.previously_reversible_reactions().get(u, (u,)):
+                for v_ in mn.previously_reversible_reactions().get(v, (v,)):
+                    self.__pkn.add((u_, s, v_))
+
         # ~ Build ASP constraints
         self.__build_asp(mn, objective, observations, epsilon)
         # ~ Update the instantiated status

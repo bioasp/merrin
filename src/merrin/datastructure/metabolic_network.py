@@ -127,7 +127,7 @@ class MetabolicNetwork:
         # ----------------------------------------------------------------------
         # Update Reactions
         # ----------------------------------------------------------------------
-        for r in self.__reactions:
+        for r in self.__reactions.copy():
             if not self.is_reversible(r):
                 continue
             rf, rr = __irreversible_renaming(r)
@@ -141,24 +141,24 @@ class MetabolicNetwork:
             # ------------------------------------------------------------------
             # Update bounds
             # ------------------------------------------------------------------
-            del self.__bounds[r]
             self.__bounds[rf] = (0, self.__bounds[r][1])
             self.__bounds[rr] = (0, -self.__bounds[r][0])
+            del self.__bounds[r]
             # ------------------------------------------------------------------
             # Update stoichiometry
             # ------------------------------------------------------------------
-            for m, r_ in self.__coeff:
+            for m, r_ in self.__coeff.copy():
                 if r != r_:
                     continue
-                del self.__coeff[(m, r)]
                 self.__coeff[(m, rf)] = self.__coeff[(m, r)]
                 self.__coeff[(m, rr)] = -self.__coeff[(m, r)]
+                del self.__coeff[(m, r)]
             # ------------------------------------------------------------------
             # Update gene association
             # ------------------------------------------------------------------
-            del self.__genes_association[r]
             self.__genes_association[rf] = self.__genes_association[r]
             self.__genes_association[rr] = self.__genes_association[r]
+            del self.__genes_association[r]
         # ----------------------------------------------------------------------
         # Return
         # ----------------------------------------------------------------------

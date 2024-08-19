@@ -28,7 +28,7 @@ maxTs(E,S+K) :- nbObs(E,S), gap(E,K).
 
 % Successive time definition
 succ((E,T1),(E,T2)) :- maxTs(E,ID), T1=(1..(ID-1)), T2=T1+1,
-                       time((E,T1)), time((E,T2)).
+time((E,T1)), time((E,T2)).
 
 % ------------------------------------------------------------------------------
 % Linking observation time with simulation time
@@ -67,10 +67,10 @@ succ((E,T1),(E,T2)) :- maxTs(E,ID), T1=(1..(ID-1)), T2=T1+1,
 
 % No clause is a subset of another one
 :- size(N,C,X), size(N,C',X'), C != C', X <= X',
-    clause(N,C',L,S): clause(N,C,L,S).
+clause(N,C',L,S): clause(N,C,L,S).
 % [Equivalent ?]
 :- clause(N,C,_,_), clause(N,C',_,_), C != C',
-    clause(N,C',L,S): clause(N,C,L,S).
+clause(N,C',L,S): clause(N,C,L,S).
 
 % Nodes that do not have functions are constant
 1 {constant(N,(-1;1))} 1 :- node(N), not clause(N,_,_,_).
@@ -88,7 +88,7 @@ size(N,C,X) :- clause(N,C,_,_), X=#count{L,S: clause(N,C,L,S)}.
 clausediff(N,C,C',L) :- clause(N,C,L,_), not clause(N,C',L,_), clause(N,C',_,_).
 mindiff(N,C,C',L) :- clausediff(N,C,C',L), L <= L': clausediff(N,C,C',L').
 :- size(N,C,X), size(N,C',X), C < C',
-    mindiff(N,C,C',L), mindiff(N,C',C,L'), L > L'.
+mindiff(N,C,C',L), mindiff(N,C',C,L'), L > L'.
 
 % ------------------------------------------------------------------------------
 % Special case: reversible reactions clauses
@@ -116,12 +116,16 @@ update(T,A) :- time(T), node(A), not ext(A), not param(mutation,E,A,_), T=(E,_).
 % ------------------------------------------------------------------------------
 
 % Elements that are not external metabolites are read as their state at T.
-read(T,A,V) :- not ext(A), succ(T,_), v(T,A,V), in(A,_,_).
-read(T,A,V) :- not ext(A), succ(T,_), v(T,A,V), in(_,A,_).
+read(T,A,V) :- not ext(A), not gene(A), succ(T,_), v(T,A,V), in(A,_,_).
+read(T,A,V) :- not ext(A), not gene(A), succ(T,_), v(T,A,V), in(_,A,_).
 
 % External metabolites are read as their state at T+1.
 read(T,A,V) :- ext(A), succ(T,T'), v(T',A,V), in(A,_,_).
 read(T,A,V) :- ext(A), succ(T,T'), v(T',A,V), in(_,A,_).
+
+% Genes are read as their state at T+1.
+read(T,A,V) :- gene(A), succ(T,T'), v(T',A,V), in(A,_,_).
+read(T,A,V) :- gene(A), succ(T,T'), v(T',A,V), in(_,A,_).
 
 % ------------------------------------------------------------------------------
 % Evaluation of DNF formula
@@ -152,26 +156,29 @@ x(T',A,V) :- ext(A), not r(_,_,A), succ(T,T'), read(T,A,V).
 
 % Value for not updated nodes
 x(T',A,V) :- succ(T,T'), not update(T,A), not ext(A), not param(mutation,E,A,_),
-             x(T,A,V), T'=(E,_).
+                x(T,A,V), T'=(E,_).
 
 % --------------------------------------
 % Updated States
 % --------------------------------------
 
 % Case Everythings: slow evaluation
-x(T',A,V) :- not ext(A), succ(T,T'), update(T,A), eval(T,A,V).
+x(T',A,V) :- not ext(A), not r(_,_,A), succ(T,T'), update(T,A), eval(T,A,V).
+
+% Case Reaction: instant evaluation of its regulatory rule
+x(T',A,V) :- not ext(A), r(_,_,R), succ(T,T'), update(T,A), eval(T,A,V).
 
 % --------------------------------------
 % Default States
 % --------------------------------------
 
 % Reactions that are not node are active by default
-x(T',A,1) :- succ(_,T'), not node(A), r(_,_,A),
-             not param(mutation,E,A,_), T'=(E,_).
+x(T',A,1) :- succ(_,T'), not node(A), r(_,_,A), not param(mutation,E,A,_),
+    T'=(E,_).
 
 % Elements that are not node are active by default
-x(T',A,1) :- succ(_,T'), not node(A), in(_,A,_),
-             not param(mutation,E,A,_), T'=(E,_).
+x(T',A,1) :- succ(_,T'), not node(A), in(_,A,_), not param(mutation,E,A,_),
+    T'=(E,_).
 
 % ------------------------------------------------------------------------------
 % Constant formula
@@ -247,8 +254,7 @@ varx(A) :- in(_,A,_), not varm(A).
 % ------------------------------------------------------------------------------
 
 % New external metabolites should be produced at T-1
-:- succ(_,T), succ(T,T'), ext(A), v(T,A,-1), v(T',A,1),
-   v(T,R,-1): product(A,R,_).
+:- succ(_,T), succ(T,T'), ext(A), v(T,A,-1), v(T',A,1), v(T,R,-1): product(A,R,_).
 
 % Removed external metabolites should be consummed at T-1
 :- succ(T,T'), ext(A), v(T,A,1), v(T',A,-1), v(T,R,-1): reactant(A,R,_).
@@ -263,32 +269,19 @@ varx(A) :- in(_,A,_), not varm(A).
 % ------------------------------------------------------------------------------
 
 lpBound(Ts,R,0,0) :- time(Ts),     x(Ts,R,-1), r(_,_,R).
-lpBound(Ts,R,0,0) :- time(Ts), not x(Ts,R,-1), reactant(M,R,_), ext(M),
-                     v(Ts,M,-1).
-lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1),
-                     v(Ts,M,1): ext(M), reactant(M,R,_); r(_,_,R),
-                     bound(R,L,U), Ts=(E,_), not param(transport,E,R,_,_),
-                     not map(_,Ts).
-lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1),
-                     v(Ts,M,1): ext(M), reactant(M,R,_); Ts=(E,_),
-                     param(transport,E,R,L,U), not map(_,Ts).
-lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1),
-                     v(Ts,M,1): ext(M), reactant(M,R,_); r(_,_,R),
-                     bound(R,L,U), Ts=(E,_), not param(transport,E,R,_,_),
-                     map(To,Ts), not bound(To,R,_,_).
-lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1),
-                     v(Ts,M,1): ext(M), reactant(M,R,_); Ts=(E,_),
-                     param(transport,E,R,L,U), map(To,Ts), not bound(To,R,_,_).
-lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1),
-                     v(Ts,M,1): ext(M), reactant(M,R,_); map(To,Ts),
-                     bound(To,R,L,U).
+lpBound(Ts,R,0,0) :- time(Ts), not x(Ts,R,-1), reactant(M,R,_), ext(M), v(Ts,M,-1).
+lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1), v(Ts,M,1): ext(M), reactant(M,R,_); r(_,_,R), bound(R,L,U), Ts=(E,_), not param(transport,E,R,_,_), not map(_,Ts).
+lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1), v(Ts,M,1): ext(M), reactant(M,R,_); Ts=(E,_), param(transport,E,R,L,U), not map(_,Ts).
+lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1), v(Ts,M,1): ext(M), reactant(M,R,_); r(_,_,R), bound(R,L,U), Ts=(E,_), not param(transport,E,R,_,_), map(To,Ts), not bound(To,R,_,_).
+lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1), v(Ts,M,1): ext(M), reactant(M,R,_); Ts=(E,_), param(transport,E,R,L,U), map(To,Ts), not bound(To,R,_,_).
+lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1), v(Ts,M,1): ext(M), reactant(M,R,_); map(To,Ts), bound(To,R,L,U).
 
 % Variables
 &dom(check(Ts)){L..U} = f(R) :- lpBound(Ts,R,L,U).
 
 % Steady-state
 &sum(check(Ts)){S * f(R): reactant(M,R,S);
-                S * f(R): product(M,R,S)} = 0 :- time(Ts), not ext(M), r(_,M,_).
+S * f(R): product(M,R,S)} = 0 :- time(Ts), not ext(M), r(_,M,_).
 
 % Inhibition due to missing input metabolite in substrate
 &sum(check(Ts)){f(R)} = 0 :- time(Ts), ext(M), reactant(M,R,_), v(Ts,M,-1).
@@ -299,27 +292,29 @@ lpBound(Ts,R,L,U) :- time(Ts), not x(Ts,R,-1),
 % Forced metabolic flux for reactions of interest
 &sum(check(Ts)){f(R)}  = 0 :- time(Ts), in(R,_,_), r(_,_,R), v(Ts,R,-1).
 &sum(check(Ts)){f(R)} >= E :- time(Ts), in(R,_,_), r(_,_,R), v(Ts,R, 1),
-                              epsilon(E).
+epsilon(E).
 
 % If a fixed reaction is set to zero then the optimum flux should be 0
 &assert(check(Ts)){f(Obj)} <= E :- lpcheck_ignore(Ts), objective(Obj),
                                    epsilon(E).
 &sum(check(Ts)){f(Obj)} >= LB * O :- time(Ts), map(To,Ts), objective(Obj),
-                                     lb(LB), obj(To,O).
+                                        lb(LB), obj(To,O).
 
 % ------------------------------------------------------------------------------
 % Dual FBA model - to ensure optimality
 % ------------------------------------------------------------------------------
 lpcheck_ignore(Ts) :- time(Ts), fixedFlux(R), R != -1, v(Ts,R,-1).
+lpcheck_dual(Ts) :- time(Ts), not map(_,Ts).
+lpcheck_dual(Ts) :- time(Ts), map(To,Ts), not obj(To,_).
 
 % Variables
-&sum(check(Ts)){p(R)} <= 0 :- time(Ts), succ(_,Ts), not lpcheck_ignore(Ts), 
+&sum(check(Ts)){p(R)} <= 0 :- lpcheck_dual(Ts), succ(_,Ts), not lpcheck_ignore(Ts),
                               r(_,_,R).
-&sum(check(Ts)){q(R)} >= 0 :- time(Ts), succ(_,Ts), not lpcheck_ignore(Ts), 
+&sum(check(Ts)){q(R)} >= 0 :- lpcheck_dual(Ts), succ(_,Ts), not lpcheck_ignore(Ts),
                               r(_,_,R), not freeBound(Ts,R).
-&sum(check(Ts)){s(R)} >= 0 :- time(Ts), succ(_,Ts), not lpcheck_ignore(Ts), 
+&sum(check(Ts)){s(R)} >= 0 :- lpcheck_dual(Ts), succ(_,Ts), not lpcheck_ignore(Ts),
                               r(_,_,R), freeBound(Ts,R).
-&sum(check(Ts)){t(R)} >= 0 :- time(Ts), succ(_,Ts), not lpcheck_ignore(Ts), 
+&sum(check(Ts)){t(R)} >= 0 :- lpcheck_dual(Ts), succ(_,Ts), not lpcheck_ignore(Ts),
                               r(_,_,R), freeBound(Ts,R).
 
 % Objective
@@ -330,7 +325,7 @@ freeBound(T1,R) :- reactant(M,R,_), ext(M), succ(T1,T2), v(T1,M,1), v(T2,M,-1).
     L * p(R): r(_,_,R), lpBound(Ts,R,L,_);
     U * q(R): r(_,_,R), lpBound(Ts,R,_,U), not freeBound(Ts,R);
     t(R): r(_,_,R), freeBound(Ts,R)
-} = 0 :- time(Ts), succ(_,Ts), not lpcheck_ignore(Ts).
+} = 0 :- lpcheck_dual(Ts), succ(_,Ts), not lpcheck_ignore(Ts).
 
 % Constraints
 &sum(check(Ts)){
@@ -339,7 +334,7 @@ freeBound(T1,R) :- reactant(M,R,_), ext(M), succ(T1,T2), v(T1,M,1), v(T2,M,-1).
     p(R);
     q(R): not freeBound(Ts,R);
     s(R): freeBound(Ts,R)
-} = 0 :- time(Ts), succ(_,Ts), not lpcheck_ignore(Ts),
+} = 0 :- lpcheck_dual(Ts), succ(_,Ts), not lpcheck_ignore(Ts),
          r(_,_,R), not objective(R).
 &sum(check(Ts)){
     S * r(M): not ext(M), reactant(M,R,S);
@@ -347,54 +342,54 @@ freeBound(T1,R) :- reactant(M,R,_), ext(M), succ(T1,T2), v(T1,M,1), v(T2,M,-1).
     p(R);
     q(R): not freeBound(Ts,R);
     s(R): freeBound(Ts,R)
-} = 1 :- time(Ts), succ(_,Ts), not lpcheck_ignore(Ts), objective(R).
+} = 1 :- lpcheck_dual(Ts), succ(_,Ts), not lpcheck_ignore(Ts), objective(R).
 
 &sum(check(Ts)){
     -U * s(R);
     t(R)
-} <= 0 :- time(Ts), succ(_,Ts), not lpcheck_ignore(Ts), lpBound(Ts,R,_,U),
+} <= 0 :- lpcheck_dual(Ts), succ(_,Ts), not lpcheck_ignore(Ts), lpBound(Ts,R,_,U),
           freeBound(Ts,R).
 
 % ------------------------------------------------------------------------------
 % Ensure optimality
 % ------------------------------------------------------------------------------
-&sum(check(Ts)){ f(Obj); -dual} <= E :- time(Ts), succ(_,Ts), 
+&sum(check(Ts)){ f(Obj); -dual} <= E :- lpcheck_dual(Ts), succ(_,Ts),
                                         not lpcheck_ignore(Ts), objective(Obj),
                                         epsilon(E).
-&sum(check(Ts)){-f(Obj);  dual} <= E :- time(Ts), succ(_,Ts), 
+&sum(check(Ts)){-f(Obj);  dual} <= E :- lpcheck_dual(Ts), succ(_,Ts),
                                         not lpcheck_ignore(Ts), objective(Obj),
                                         epsilon(E).
 
 % ==============================================================================
 % Linear Constraints - Ensure that no metabolic steady state has an optimum
-%                      growth value than the observation 
+%                      growth value than the observation
 % ==============================================================================
 lpMatchObjective(To) :- next(_,To), obj(To,_).
 
 % Variables
-&dom(reg(To)){L..U} = f(R) :- lpMatchObjective(To), r(_,_,R), bound(R,L,U),
-                              To=(E,_), not param(transport,E,R,_,_),
-                              not bound(To,R,_,_).
-&dom(reg(To)){L..U} = f(R) :- lpMatchObjective(To), To=(E,_),
-                              param(transport,E,R,L,U), not bound(To,R,_,_).
+
+% Metabolic flux bounds
+&dom(reg(To)){L..U} = f(R) :- lpMatchObjective(To), param(transport,E,R,L,U),
+To=(E,_).
 &dom(reg(To)){L..U} = f(R) :- lpMatchObjective(To), bound(To,R,L,U).
+&dom(reg(To)){L..U} = f(R) :- lpMatchObjective(To), r(_,_,R), bound(R,L,U).
 
 % Steady-state
 &sum(reg(To)){S * f(R): reactant(M,R,S);
-              S * f(R): product(M,R,S)} = 0 :- lpMatchObjective(To),
-                                               not ext(M), r(_,M,_).
+S * f(R): product(M,R,S)} = 0 :- next(_,To),
+not ext(M), r(_,M,_).
 
 % Inhibition due to missing input metabolite in substrate
-&sum(reg(To)){f(R)} = 0 :- lpMatchObjective(To), map(To,Ts), ext(M),
-                           reactant(M,R,_), v(Ts,M,-1).
+&sum(reg(To)){f(R)} = 0 :- next(_,To), map(To,Ts), ext(M),
+reactant(M,R,_), v(Ts,M,-1).
 
 % Inhibition due to regulatory rules
-&sum(reg(To)){f(R)} = 0 :- lpMatchObjective(To), map(To,Ts), r(_,_,R),
-                           x(Ts,R,-1).
+&sum(reg(To)){f(R)} = 0 :- next(_,To), map(To,Ts), r(_,_,R),
+x(Ts,R,-1).
 
 % Ensure that the biomass optimum match the observation
-&assert(reg(To)){f(Obj)} <= UB * O :- lpMatchObjective(To), objective(Obj),
-                                      ub(UB), obj(To,O).
+&assert(reg(To)){f(Obj)} <= UB * O :- next(_,To), objective(Obj),
+   ub(UB), obj(To,O).
 
 % ==============================================================================
 % Applying observations
@@ -447,6 +442,7 @@ valid_rule(N,C,A) :- valid_lit(T,N,C,A), valid_clause(T,N,C).
 % ==============================================================================
 
 % Remove warnings for undefined optional elements
+gene(-1).
 obj(-1,-1).
 rev(-1,-1).
 fixedFlux(-1).

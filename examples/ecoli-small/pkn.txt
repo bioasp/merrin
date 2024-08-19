@@ -17,3 +17,6 @@ RPcl	0	Tc2
 RPh	0	R8a
 Rres	0	RPO2
 Tc2	0	RPcl
+RPcl	0	Tc1
+RPcl	0	Tc1
+Carbon1	0	RPcl

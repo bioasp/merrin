@@ -120,7 +120,9 @@ def main() -> None:
     # Initialise Merrin Learn object
     # --------------------------------------------------------------------------
     learner: MerrinLearner = MerrinLearner()
+    # ~ Load instance
     learner.load_instance(mn, args.obj, pkn, observations)
+    # ~ Select projection mode
     if args.projection == 'network':
         learner.learn(
             nbsol=0, display=True, lp_solver=args.lpsolver,
@@ -133,7 +135,6 @@ def main() -> None:
             max_error=0.3, max_gap=10, timelimit=args.timelimit,
             subsetmin=args.optimisation == 'subsetmin'
         )
-
 
 # ==============================================================================
 # Main
