@@ -131,6 +131,39 @@ class MerrinLearner:
                                       self.__constraints_extended))
         return ctl
 
+    # ==========================================================================
+    # Rules projection mode
+    # ==========================================================================
+
+    # --------------------------------------------------------------------------
+    # Learn: `Network` Projection
+    # --------------------------------------------------------------------------
+    def learn(self: MerrinLearner, nbsol: int = 0, subsetmin: bool = False,
+              display: bool = False, **kwargs) -> list[list[tuple[str, str]]]:
+        assert self.__instantiated
+        # ~ Get Config
+        config: MerrinLearner.__Config = self.__read_config(kwargs)
+        # ~ Build Parameters and PKN ASP
+        self.__build_asp_pkn(config)
+        # ~ Initialise the ASP solver `clingo`
+        ctl: Control = self.__init_clingo(nbsol, subsetmin, config.lp_solver)
+        ctl.add("base", [], '\n'.join([
+            '#show.',
+            '#show clause/4.'
+        ]))
+        # ~ Ground the ASP program
+        ctl.ground([('base', [])])
+        # ~ Print CSV header
+        if display:
+            nodes: set[str] = {n for _, _, n in self.__pkn}
+            columns: list[str] = [
+                self.__renamed_reactions.get(n, (n, n))[1]
+                for n in sorted(nodes)
+            ]
+            print(','.join(columns), flush=True)
+        # ~ Solve
+        return self.__solve_asp(ctl, config.timelimit, display)
+
     def __solve_asp(self: MerrinLearner, ctl: Control, timelimit: int,
                     display: bool) -> list[list[tuple[str, str]]]:
         results: list[list[tuple[str, str]]] = []
@@ -158,38 +191,12 @@ class MerrinLearner:
             print(','.join([rules.get(n, '1') for n in sorted(nodes)]),
                   flush=True)
 
-    # ==========================================================================
-    # Rules projection mode
-    # ==========================================================================
-    def learn(self: MerrinLearner, nbsol: int = 0, subsetmin: bool = False,
-              display: bool = False, **kwargs) -> list[list[tuple[str, str]]]:
-        assert self.__instantiated
-        # ~ Get Config
-        config: MerrinLearner.__Config = self.__read_config(kwargs)
-        # ~ Build Parameters and PKN ASP
-        self.__build_asp_pkn(config)
-        # ~ Initialise the ASP solver `clingo`
-        ctl: Control = self.__init_clingo(nbsol, subsetmin, config.lp_solver)
-        ctl.add("base", [], '\n'.join([
-            '#show.',
-            '#show clause/4.'
-        ]))
-        # ~ Ground the ASP program
-        ctl.ground([('base', [])])
-        # ~ Print CSV header
-        if display:
-            nodes: set[str] = {n for _, _, n in self.__pkn}
-            columns: list[str] = [
-                self.__renamed_reactions.get(n, (n, n))[1]
-                for n in sorted(nodes)
-            ]
-            print(','.join(columns), flush=True)
-        # ~ Solve
-        return self.__solve_asp(ctl, config.timelimit, display)
-
+    # --------------------------------------------------------------------------
+    # Learn: `Node` Projection
+    # --------------------------------------------------------------------------
     def learn_per_node(self: MerrinLearner, nbsol: int = 0,
                        subsetmin: bool = False, display: bool = False,
-                       **kwargs) -> list[tuple[str, list[str]]]:
+                       **kwargs) -> dict[str, list[str]]:
         assert self.__instantiated
         # ~ Get Config
         config: MerrinLearner.__Config = self.__read_config(kwargs)
@@ -197,7 +204,6 @@ class MerrinLearner:
         self.__build_asp_pkn(config)
         # ~ Initialise the ASP solver `clingo`
         nodes: set[str] = {n for _, _, n in self.__pkn}
-        results: list[tuple[str, list[str]]] = []
         # ~ Print CSV header
         if display:
             columns: list[str] = [
@@ -205,33 +211,51 @@ class MerrinLearner:
                 for n in sorted(nodes)
             ]
             print(','.join(columns), flush=True)
-        first_iter: bool = True
-        for n in sorted(nodes):
-            ctl: Control = self.__init_clingo(nbsol, subsetmin,
-                                              config.lp_solver)
-            ctl.add("base", [], '\n'.join([
+        ctl: Control = self.__init_clingo(nbsol, subsetmin,
+                                            config.lp_solver)
+        # ~ Add show
+        ctl.add("base", [], '\n'.join([
+                '1 { show(N): in(_,N,_) } 1.',
                 '#show.',
-                f'#show clause(N,C,A,V): clause(N,C,A,V), N="{n}".'
+                '#show show/1.',
+                '#show clause(N,C,A,V): clause(N,C,A,V), show(N).',
             ]))
-            # ~ Ground the ASP program
-            ctl.ground([('base', [])])
-            # ~ Solve
-            rules_for_n: list[list[tuple[str, str]]] = self.__solve_asp(
-                ctl, config.timelimit, False
-            )
-            # ~ Add cst
-            rules = sorted([rule[0][1] if len(rule) > 0 else '1'
-                            for rule in rules_for_n])
-            results.append((n, rules))
-            if display:
-                if first_iter:
-                    first_iter = False
-                    print(";".join(rules), end='', flush=True)
-                    continue
-                print(',' + ";".join(rules), end='', flush=True)
+        # ~ Ground the ASP program
+        ctl.ground([('base', [])])
+        # ~ Solve
+        results: dict[str, list[str]] = {}
+        if config.timelimit == -1:
+            ctl.solve(on_model=lambda m: self.__on_model_node(results, m))
+        else:
+            with ctl.solve(on_model=lambda m: self.__on_model_node(results, m),
+                        async_=True) as handle:  # type: ignore
+                handle.wait(config.timelimit)
+                handle.cancel()
+                handle.get()
+
         if display:
-            print('', flush=True)
+            results_str: list[str] = [
+                ';'.join(sorted(results[n])) for n in sorted(results.keys())
+            ]
+            print(','.join(results_str), flush=True)
+
         return results
+
+    def __on_model_node(self: MerrinLearner,
+                        results: dict[str, list[str]],
+                        model: Model) -> None:
+        if not model.optimality_proven:
+            return
+        if len(model.symbols(shown=True)) == 1:
+            for atom in model.symbols(shown=True):
+                assert atom.name == 'show' and len(atom.arguments) == 1
+                results.setdefault(atom.arguments[0].string, []).append('1')
+            return
+
+        rules: dict[str, str] = self.__parse_clauses(model)
+        assert len(rules) == 1
+        for node, rule in rules.items():
+            results.setdefault(node, []).append(rule)
 
     # ==========================================================================
     # Clingo output parsing
@@ -240,16 +264,17 @@ class MerrinLearner:
         # ~ Extract clauses from ASP solutions
         clauses: dict[str, dict[int, list[str]]] = {}
         for atom in model.symbols(shown=True):
-            assert atom.name == 'clause' and len(atom.arguments) == 4
-            n: str = atom.arguments[0].string
-            c: int = atom.arguments[1].number
-            a: str = atom.arguments[2].string
-            if a in self.__renamed_reactions:
-                a = self.__renamed_reactions[a][1]
-            v: int = atom.arguments[3].number
-            clauses.setdefault(n, {}).setdefault(c, []).append(
-                a if v == 1 else f'!{a}'
-            )
+            if atom.name == 'clause':
+                assert len(atom.arguments) == 4
+                n: str = atom.arguments[0].string
+                c: int = atom.arguments[1].number
+                a: str = atom.arguments[2].string
+                if a in self.__renamed_reactions:
+                    a = self.__renamed_reactions[a][1]
+                v: int = atom.arguments[3].number
+                clauses.setdefault(n, {}).setdefault(c, []).append(
+                    a if v == 1 else f'!{a}'
+                )
         # ~ Generate rule from the clauses
         rules: dict[str, str] = {}
         for n, n_clauses in clauses.items():
@@ -265,6 +290,7 @@ class MerrinLearner:
                 rule = f'({rule})'
             rules[n] = rule
         return rules
+
 
     # ==========================================================================
     # Setters / Getters
