@@ -306,3 +306,22 @@ def instantiate_parameters(max_gap: int, max_error: float,
         Template.Parameter.lp_epsilon(epsilon)
     ]
     return parameters_asp
+
+# ==============================================================================
+# Traces
+# ==============================================================================
+def instantiate_trace(trace: dict[tuple[str, int],
+                                  tuple[list[tuple[str, bool]],
+                                        list[tuple[str, bool]]]]) -> list[str]:
+    trace_asp: list[str] = [Template.header('Traces', '=')]
+    for time, (inputs, outputs) in trace.items():
+        trace_asp.append(Template.header(f'Time: {time}', '-'))
+        trace_asp.extend([
+            Template.Trace.input(time, n, 1 if v else -1)
+            for n, v in inputs
+        ])
+        trace_asp.extend([
+            Template.Trace.output(time, n, 1 if v else -1)
+            for n, v in outputs
+        ])
+    return trace_asp

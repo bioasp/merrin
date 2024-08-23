@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "merrin"
-version = "2.0.0"
+version = "2.1.0"
 authors = [
   { name="Kerian Thuillier", email="kerian.thuillier@irisa.fr" },
 ]
@@ -19,7 +19,7 @@ keywords = [
 readme = "README.md"
 requires-python = ">=3.7"
 dependencies = [
-    "merrinasp@git+https://github.com/kthuillier/merrinasp",
+    "merrinasp@git+https://github.com/kthuillier/merrinasp >= 1.1.0",
     "clingo >=5.6.1",
     "pandas",
     "numpy",
@@ -44,7 +44,8 @@ merrin = "merrin.app:main"
 [tool.setuptools.package-data]
 merrin = [
   "py.typed",
-  "asp/model/learn.lp"  
+  "asp/model/learn.lp",
+  "asp/model/learn_from_trace.lp"
 ]
 
 [tool.setuptools.packages.find]

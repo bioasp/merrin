@@ -3,7 +3,7 @@
 # ==============================================================================
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Literal, Iterable
+from typing import Any, Literal, Iterable, Callable
 
 from clingo import Control, Model
 
@@ -16,7 +16,9 @@ from merrin.asp import (
     instantiate_pkn,
     instantiate_observations,
     instantiate_parameters,
-    ASP_MODEL_LEARN
+    instantiate_trace,
+    ASP_MODEL_LEARN,
+    ASP_MODEL_LEARN_FROM_TRACE
 )
 
 
@@ -131,6 +133,28 @@ class MerrinLearner:
                                       self.__constraints_extended))
         return ctl
 
+    def __solve_asp(self: MerrinLearner, ctl: Control, timelimit: int,
+                    on_model: Callable[[Model], None]) -> None:
+        if timelimit == -1:
+            ctl.solve(on_model=on_model)
+            return
+
+        with ctl.solve(on_model=on_model, async_=True) as handle:
+            handle.wait(timelimit)
+            handle.cancel()
+            handle.get()
+
+    def __prohibit_model(self: MerrinLearner,
+                         signatures: list[tuple[str, int]],
+                         model: Model) -> list[tuple[str, bool]]:
+        to_prohibit: list[tuple[str, bool]] = []
+        for symbol in model.symbols(atoms=True):
+            if (symbol.name, len(symbol.arguments)) in signatures:
+                to_prohibit.append((str(symbol), False))
+        assert self.__propagator is not None
+        self.__propagator.add_clause(to_prohibit)
+        return to_prohibit
+
     # ==========================================================================
     # Rules projection mode
     # ==========================================================================
@@ -162,26 +186,16 @@ class MerrinLearner:
             ]
             print(','.join(columns), flush=True)
         # ~ Solve
-        return self.__solve_asp(ctl, config.timelimit, display)
-
-    def __solve_asp(self: MerrinLearner, ctl: Control, timelimit: int,
-                    display: bool) -> list[list[tuple[str, str]]]:
         results: list[list[tuple[str, str]]] = []
-
-        if timelimit == -1:
-            ctl.solve(on_model=lambda m: self.__on_model(results, m, display))
-            return results
-
-        with ctl.solve(on_model=lambda m: self.__on_model(results, m, display),
-                       async_=True) as handle:  # type: ignore
-            handle.wait(timelimit)
-            handle.cancel()
-            handle.get()
-
+        self.__solve_asp(
+            ctl, config.timelimit,
+            lambda m: self.__on_model_network(results, m, display)
+        )
         return results
 
-    def __on_model(self: MerrinLearner, results: list[list[tuple[str, str]]],
-                   model: Model, display: bool = False) -> None:
+    def __on_model_network(self: MerrinLearner,
+                           results: list[list[tuple[str, str]]],
+                           model: Model, display: bool = False) -> None:
         if not model.optimality_proven:
             return
         nodes: set[str] = {n for _, _, n in self.__pkn}
@@ -224,14 +238,8 @@ class MerrinLearner:
         ctl.ground([('base', [])])
         # ~ Solve
         results: dict[str, list[str]] = {}
-        if config.timelimit == -1:
-            ctl.solve(on_model=lambda m: self.__on_model_node(results, m))
-        else:
-            with ctl.solve(on_model=lambda m: self.__on_model_node(results, m),
-                        async_=True) as handle:  # type: ignore
-                handle.wait(config.timelimit)
-                handle.cancel()
-                handle.get()
+        self.__solve_asp(ctl, config.timelimit,
+                         lambda m: self.__on_model_node(results, m))
 
         if display:
             results_str: list[str] = [
@@ -246,6 +254,118 @@ class MerrinLearner:
                         model: Model) -> None:
         if not model.optimality_proven:
             return
+        if len(model.symbols(shown=True)) == 1:
+            for atom in model.symbols(shown=True):
+                assert atom.name == 'show' and len(atom.arguments) == 1
+                results.setdefault(atom.arguments[0].string, []).append('1')
+            return
+
+        rules: dict[str, str] = self.__parse_clauses(model)
+        assert len(rules) == 1
+        for node, rule in rules.items():
+            results.setdefault(node, []).append(rule)
+
+    # --------------------------------------------------------------------------
+    # Learn: `Trace` Projection
+    # --------------------------------------------------------------------------
+    def learn_per_trace(self: MerrinLearner, nbsol: int = 0,
+                        subsetmin: bool = False, display: bool = False,
+                        **kwargs) -> list[dict[str, list[str]]]:
+        assert self.__instantiated
+        # ~ Get Config
+        config: MerrinLearner.__Config = self.__read_config(kwargs)
+        # ~ Build Parameters and PKN ASP
+        self.__build_asp_pkn(config)
+        # ~ Initialise the ASP solver `clingo`
+        ctl: Control = self.__init_clingo(nbsol, subsetmin, config.lp_solver)
+        ctl.add("base", [], '\n'.join([
+            'inp(T2,N,V) :- succ(T1,T2), read(T1,N,V), in(N,_,_).',
+            'out(T,N,V) :- succ(_,T), x(T,N,V), in(_,N,_).',
+            '#show.',
+            '#show clause/4.'
+        ]))
+        # ~ Ground the ASP program
+        ctl.ground([('base', [])])
+        # ~ Print CSV header
+        if display:
+            nodes: set[str] = {n for _, _, n in self.__pkn}
+            columns: list[str] = [
+                self.__renamed_reactions.get(n, (n, n))[1]
+                for n in sorted(nodes)
+            ]
+            print(','.join(columns), flush=True)
+        # ~ Solve
+        results: list[dict[str, list[str]]] = []
+        self.__solve_asp(ctl, config.timelimit,
+                         lambda m: self.__on_model_trace(results, m,
+                                                         display, subsetmin))
+        return results
+
+    def __on_model_trace(self: MerrinLearner,
+                         results: list[dict[str, list[str]]],
+                         model: Model, display: bool = False,
+                         subsetmin: bool = False) -> None:
+        if not model.optimality_proven:
+            return
+        # ~ Prohibit the trace
+        self.__prohibit_model([('inp', 3), ('out', 3)], model)
+        if subsetmin:
+            self.__prohibit_strict_supersets(model)
+        # ~ Parse the trace
+        trace: dict[tuple[str, int],
+                    tuple[list[tuple[str, bool]],
+                          list[tuple[str, bool]]]] = self.__parse_trace(model)
+        # ~ Learn the BN compatible with the trace
+        rules: dict[str, list[str]] = self.__learn_from_trace(trace, subsetmin)
+        results.append(rules)
+        # ~ Display the result
+        if display:
+            rules_str: list[str] = [
+                ';'.join(sorted(rules[n])) for n in sorted(rules.keys())
+            ]
+            print(','.join(rules_str), flush=True)
+
+    def __prohibit_strict_supersets(self: MerrinLearner, model: Model) -> None:
+        nodes_true: list[tuple[str, bool]] = []
+        for symbol in model.symbols(atoms=True):
+            if symbol.name == 'node' and len(symbol.arguments) == 1:
+                nodes_true.append((str(symbol), False))
+        assert self.__propagator is not None
+        for symbol in model.symbols(atoms=True, complement=True):
+            if symbol.name == 'node' and len(symbol.arguments) == 1:
+                self.__propagator.add_clause(
+                    [(str(symbol), False)] + nodes_true
+                )
+
+    def __learn_from_trace(self: MerrinLearner,
+                           trace: dict[tuple[str, int],
+                                       tuple[list[tuple[str, bool]],
+                                             list[tuple[str, bool]]]],
+                           subsetmin: bool = False) -> dict[str, list[str]]:
+        # ~ Build the ASP program
+        options: list[str] = self.__get_options(0, subsetmin)
+        ctl = Control(options)
+        ctl.load(ASP_MODEL_LEARN_FROM_TRACE)
+        ctl.add("base", [], '\n'.join(self.__constraints_extended))
+        ctl.add("base", [], '\n'.join(instantiate_trace(trace)))
+        # ~ For each node in the PKN with input interactions
+        ctl.add("base", [], '\n'.join([
+                '1 { show(N): in(_,N,_) } 1.',
+                '#show.',
+                '#show show/1.',
+                '#show clause(N,C,A,V): clause(N,C,A,V), show(N).']))
+        #   | Ground the ASP program
+        ctl.ground([('base', [])])
+        #   | Solve the ASP program
+        results: dict[str, list[str]] = {}
+        self.__solve_asp(ctl, -1,
+                         lambda m: self.__on_model_trace_learn(results, m))
+        # ~ Return the results
+        return results
+
+    def __on_model_trace_learn(self: MerrinLearner,
+                               results: dict[str, list[str]],
+                               model: Model) -> None:
         if len(model.symbols(shown=True)) == 1:
             for atom in model.symbols(shown=True):
                 assert atom.name == 'show' and len(atom.arguments) == 1
@@ -291,6 +411,23 @@ class MerrinLearner:
             rules[n] = rule
         return rules
 
+    def __parse_trace(self: MerrinLearner, model: Model) \
+            -> dict[tuple[str, int],
+                    tuple[list[tuple[str, bool]], list[tuple[str, bool]]]]:
+        # ~ Extract clauses from ASP solutions
+        trace: dict[tuple[str, int],
+                    tuple[list[tuple[str, bool]], list[tuple[str, bool]]]] = {}
+        for symbol in model.symbols(atoms=True):
+            if symbol.name in ['inp', 'out']:
+                index: int = 0 if symbol.name == 'inp' else 1
+                time: tuple[str, int] = (
+                    symbol.arguments[0].arguments[0].string,
+                    symbol.arguments[0].arguments[1].number
+                )
+                node: str =symbol.arguments[1].string
+                value: bool = symbol.arguments[2].number == 1
+                trace.setdefault(time, ([], []))[index].append((node, value))
+        return trace
 
     # ==========================================================================
     # Setters / Getters

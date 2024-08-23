@@ -77,7 +77,7 @@ class MetabolicNetwork:
     @classmethod
     def objective(cls, r: str) -> str:
         return f'objective("{r}").'
-    
+
     @classmethod
     def gene(cls, g: str) -> str:
         return f'gene("{g}").'
@@ -156,3 +156,18 @@ class TimeSeries:
     def observation_exchange(cls, t: tuple[str, int], r: str,
                              lb: float, ub: float) -> str:
         return f'bound(("{t[0]}", {t[1]}), "{r}", "{lb}", "{ub}").'
+
+# ------------------------------------------------------------------------------
+# Trace description
+# ------------------------------------------------------------------------------
+class Trace:
+    # --------------------------------------------------------------------------
+    # Template ASP
+    # --------------------------------------------------------------------------
+    @classmethod
+    def input(cls, t: tuple[str, int], n: str, v: int) -> str:
+        return f'inp(("{t[0]}", {t[1]}), "{n}", {v}).'
+
+    @classmethod
+    def output(cls, t: tuple[str, int], n: str, v: int) -> str:
+        return f'out(("{t[0]}", {t[1]}), "{n}", {v}).'

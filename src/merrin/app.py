@@ -82,14 +82,24 @@ def parse() -> Namespace:
     )
     parser.add_argument(
         '--projection',
-        help='Select project mode (default: network):' +
+        help='Select project mode (default: network):'
+             '\nnetwork: enumerate all the rules of each network'
              '\nnode: enumerate the candidate rules for each node'
-             '\nnetwork: enumerate all the rules of each network',
+             '\ntrace: enumerate the candidate rules per rFBA traces'
+             '\t\tIt is a compress representation of the *network* projection',
         required=False,
         default='network',
         dest='projection',
         type=str,
-        choices=('network', 'node')
+        choices=('network', 'node', 'trace')
+    )
+    parser.add_argument(
+        '-n',
+        help='Maximum number of solutions to enumerate',
+        required=False,
+        default=0,
+        dest='nbsol',
+        type=int
     )
     return parser.parse_args()
 
@@ -125,16 +135,23 @@ def main() -> None:
     # ~ Select projection mode
     if args.projection == 'network':
         learner.learn(
-            nbsol=0, display=True, lp_solver=args.lpsolver,
+            nbsol=args.nbsol, display=True, lp_solver=args.lpsolver,
             max_error=0.3, max_gap=10, timelimit=args.timelimit,
             subsetmin=args.optimisation == 'subsetmin'
         )
     elif args.projection == 'node':
         learner.learn_per_node(
-            nbsol=0, display=True, lp_solver=args.lpsolver,
+            nbsol=args.nbsol, display=True, lp_solver=args.lpsolver,
             max_error=0.3, max_gap=10, timelimit=args.timelimit,
             subsetmin=args.optimisation == 'subsetmin'
         )
+    elif args.projection == 'trace':
+        learner.learn_per_trace(
+            nbsol=args.nbsol, display=True, lp_solver=args.lpsolver,
+            max_error=0.3, max_gap=10, timelimit=args.timelimit,
+            subsetmin=args.optimisation == 'subsetmin'
+        )
+
 
 # ==============================================================================
 # Main
