@@ -1,0 +1,37 @@
+[
+	{
+		"file": "timeseries/Fig3.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {
+				"GLCex": [-10.5, 10.5],
+				"ACex": [-2.5, 2.5],
+				"O2ex": [-15, 15]
+			}
+		}
+	},
+	{
+		"file": "timeseries/Fig4.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {
+				"GLCex": [-18.5, 18.5],
+				"O2ex": [0, 0]
+			}
+		}
+	},
+	{
+		"file": "timeseries/Fig5.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {
+				"LCTSex": [-6.5, 6.5],
+				"GLCex": [-6.5, 6.5],
+				"O2ex": [-15, 15]
+			}
+		}
+	}
+]

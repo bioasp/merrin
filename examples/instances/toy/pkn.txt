@@ -1,0 +1,11 @@
+Carbon1	0	RPcl
+Carbon2	0	RPcl
+Oxygen	0	RPO2
+RPcl	0	Tc2
+RPcl	0	Tc1
+RPO2	0	Rres
+Rres	0	RPO2
+Tc2	0	RPcl
+Tc1	0	RPcl
+Rres	0	RPO2
+RPO2	0	Rres

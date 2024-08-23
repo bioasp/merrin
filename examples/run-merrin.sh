@@ -4,23 +4,28 @@
 SD=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # ==============================================================================
+# INSTANCE
+# ==============================================================================
+# Instance among:
+# - toy, with the objective reaction `Growth`
+# - core-regulated, with the OBJective function `Growth`
+# - large-scale, with the OBJective function `VGRO`
+INSTANCE="core-regulated"   # Instance
+OBJ="Growth"                # Objective reaction
+
+# ==============================================================================
 # MERRIN INPUTS
 # ==============================================================================
-SBML="${SD}/ecoli-small/metabolic_network.sbml" # Metabolic network in SBML
-OBJ="Growth"                                    # Objective reaction
-PKN="${SD}/ecoli-small/pkn.txt"                 # Prior Knwoledge Network file
-# Observations description file in JSON format:
-# `timeseries_kft.json`: timeseries observation with kinetics, fluxomics and
-#                        transcriptomics data
-# `timeseries_t.json`: timeseries observation with transcriptomics data only
-OBSERVATIONS="${SD}/ecoli-small/timeseries_kft.json"
+SBML="${SD}/instances/${INSTANCE}/metabolic_network.sbml"
+PKN="${SD}/instances/${INSTANCE}/pkn.txt"
+OBSERVATIONS="${SD}/instances/${INSTANCE}/timeseries_kft.json"
 
 # ==============================================================================
 # MERRIN INPUTS -- OPTIONAL
 # ==============================================================================
-OPTIMISATION="all"      # Optimisation mode, either `all` or `subsetmin`
-PROJECTION="network"    # Projection mode, either `network` or `node`
-OUTPUT_CSV="${SD}/merrin-ecoli-small.csv"
+OPTIMISATION="subsetmin" # Optimisation mode, either `all` or `subsetmin`
+PROJECTION="trace"       # Projection mode, either `network`, `node`, or `trace`
+OUTPUT_CSV="${SD}/merrin-${INSTANCE}.${OPTIMISATION}.${PROJECTION}.csv"
 
 # ==============================================================================
 # Start MERRIN

@@ -1,0 +1,50 @@
+[
+	{
+		"file": "timeseries/Fig4.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {}
+		}
+	},
+	{
+		"file": "timeseries/Fig5.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {}
+		}
+	},
+	{
+		"file": "timeseries/Fig6.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {}
+		}
+	},
+	{
+		"file": "timeseries/Fig7.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {}
+		}
+	},
+	{
+		"file": "timeseries/Fig8.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {}
+		}
+	},
+	{
+		"file": "timeseries/Fig9.csv",
+		"type": ["Kinetics","Fluxomics","Transcriptomics"],
+		"constraints": {
+			"mutations": {},
+			"bounds": {}
+		}
+	}
+]
