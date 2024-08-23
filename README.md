@@ -14,9 +14,11 @@ python3.X -m pip install git+https://github.com/bioasp/merrin
 
 `merrin` can be used in the terminal as follows:
 ```sh
-merrin  [-h] -sbml SBML -pkn PKN -obj OBJ -obs OBS [-out OUTPUT] [--lpsolver {glpk,gurobi}] [--timelimit TIMELIMIT]
-        [--optimization {all,subsetmin}] [--projection {network,node}]
+merrin  [-h] -sbml SBML -pkn PKN -obj OBJ -obs OBS [-n NBSOL] [--lpsolver {glpk,gurobi}] [--timelimit TIMELIMIT]
+        [--optimization {all,subsetmin}] [--projection {network,node,trace}]
 ```
+
+Inferred regulatory rules are displayed in the terminal in CSV format, see examples below.
 
 **Mandatory arguments:**
 ```sh
@@ -31,20 +33,20 @@ merrin  [-h] -sbml SBML -pkn PKN -obj OBJ -obs OBS [-out OUTPUT] [--lpsolver {gl
 
 **Optional arguments:**
 ```sh
-  -out OUTPUT, --output-file OUTPUT
-                        Output CSV file (default: ./merrin-<optimization>-<projection>-<timestamp>.csv)
+  -n NBSOL
+                        Number of solution to enumerate (default: 0 for all)
   --lpsolver {glpk,gurobi}
                         Linear solver to use (default: glpk)
   --timelimit TIMELIMIT
                         Timelimit for each resolution, -1 if none (default: -1)
   --optimization {all,subsetmin}
                         Select optimization mode: all networks or subset minimal ones only (default: subsetmin)
-  --projection {network,node}
+  --projection {network,node,trace}
                         Select project mode (default: network):
+                        - network: enumerate all the rules of each network;
                         - node: enumerate the candidate rules for each node;
-                        - network: enumerate all the rules of each network
+                        - trace: enumerate classes of network of equivalent rFBA traces
 ```
-
 
 ## Input files
 
@@ -117,35 +119,37 @@ A rule set to `1` represents a constant value (*i.e.* always activated) for whic
 **Remarks 1:** If *no regulatory networks are returned*, then the instance is *unsatisfiable*.
 Try to change the `max_gap` and `max_error` variables before launching `merrin` again.
 
-**Remarks 2:** For unsatisfiable instances with *kinetics* and/or *fluxomics* data, launching `merrin` with the observation declared as *transcriptomics* data only can sometimes allow inferring some regulatory networks. 
+**Remarks 2:** For unsatisfiable instances with *kinetics* and/or *fluxomics* data, launching `merrin` with the observation declared as *transcriptomics* data only can sometimes allow inferring some regulatory networks.
 
-## Rule syntax and semantics 
+## Rule syntax and semantics
 
 Regulatory rules are returned in ***disjunctive normal form*** (DNF) with the following syntax:
 > R := 1 || C || (C_1 | ... | C_n)  
 > C := L || (L_1 & ... & L_m)  
 > L := N || !N  
-> N := regulatory component name  
+> N := regulatory component name
 
 with `!` denoting the negation, `&` the logical and, and `|` the logical or.
 
 ## Examples
 
-An example is provided in `./examples`.
-The instance `./examples/ecoli-small` has been generated from the regulatory metabolic network and the experiments described in [(Covert et al., 2001)](https://www.sciencedirect.com/science/article/pii/S0022519301924051?via%3Dihub).
+Examples are provided in `./examples`.
+- The instance `./examples/instances/toy` has been generated from the regulatory metabolic network and the experiments described in [(Thuillier et al., 2021)](https://link.springer.com/chapter/10.1007/978-3-030-85633-5_10).
+- The instance `./examples/instances/core-regulated` has been generated from the regulatory metabolic network and the experiments described in [(Covert et al., 2001)](https://www.sciencedirect.com/science/article/pii/S0022519301924051?via%3Dihub).
+- The instance `./examples/instances/large-scale` has been generated from the regulatory metabolic network and the experiments described in [(Covert et al., 2002)](https://www.sciencedirect.com/science/article/pii/S0021925819662757).
 
-To solve the instance using the console command, see the bash file: `./examples/run-merrin.sh`.
+To solve the `core-regulated` instance using the console command, see the bash file: `./examples/run-merrin.sh`.
 It can be executed with:
 ```bash
 sh ./examples/run-merrin.sh
 ```
 
-To solve the instance using a *Python* script using `merrin`, check the *jupyter* notebook: `./examples/notebook-merrin.ipynb`.
+To solve the `core-regulated` instance using a *Python* script using `merrin`, check the *jupyter* notebook: `./examples/notebook-merrin.ipynb`.
 
 ### Inferred rules on the example
 
 **Network projection:** Infer regulatory networks.
-Each row of the output `CSV` is a regulatory network and each column is the rules for a given regulatory component.
+Each row of the displayed `CSV` is a regulatory network and each column is the rules for a given regulatory component.
 
 **Example 1:** Network projection + All optimization
 ```csv
@@ -166,7 +170,7 @@ R2a,R2b,R5a,R5b,R7,R8a,RPO2,RPb,RPcl,RPh,Rres,Tc2
 ```
 
 **Node projection:** Infer possible regulatory rules for each regulatory component.
-Output file will only contain 1 row.
+It will only output 1 row.
 Each cell contains a set of compatible regulatory rules separated by ';'.
 
 **Example 3:** Node projection + All optimization
@@ -181,6 +185,12 @@ The node `R5a` has 2 possible regulatory rules: `!RPO2` or `1` (unregulated).
 R2a,R2b,R5a,R5b,R7,R8a,RPO2,RPb,RPcl,RPh,Rres,Tc2
 !RPb,1,1,1,1,!RPh,!Oxygen,R2b,Carbon1,Hext,1,!RPcl
 ```
+
+**Trace projection:** Infer possible regulatory rules for each rFBA trace compatible with the observations.
+Each row of the displayed `CSV` is a class of regulatory networks compatible with an rFBA trace compatible with the observations.
+Each cell contains a set of compatible regulatory rules separated by ';' for a dedicated node.
+
+**Remarks:** For the `core-regulated` instance, it yields the same CSV than the `network projection`
 
 ## References
 
