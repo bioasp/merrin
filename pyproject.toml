@@ -19,7 +19,7 @@ keywords = [
 readme = "README.md"
 requires-python = ">=3.7"
 dependencies = [
-    "merrinasp@git+https://github.com/kthuillier/merrinasp >= 1.1.0",
+    "merrinasp@git+https://github.com/kthuillier/merrinasp",
     "clingo >=5.6.1",
     "pandas",
     "numpy",
