@@ -101,6 +101,35 @@ def parse() -> Namespace:
         dest='nbsol',
         type=int
     )
+    parser.add_argument(
+        '--max-gap',
+        help='Maximum number of extra (unobserved) timesteps that can be'
+             ' inserted between two observations (default: 10). Lowering'
+             ' this shrinks the ground program and can speed up solving'
+             ' at the cost of the search allowing less slack.',
+        required=False,
+        default=10,
+        dest='max_gap',
+        type=int
+    )
+    parser.add_argument(
+        '--max-error',
+        help='Maximum relative error tolerated between observations and'
+             ' predictions (default: 0.3)',
+        required=False,
+        default=0.3,
+        dest='max_error',
+        type=float
+    )
+    parser.add_argument(
+        '--max-clause',
+        help='Maximum number of clauses per regulatory rule (default: 20).'
+             ' Lowering this shrinks the candidate rule search space.',
+        required=False,
+        default=20,
+        dest='max_clause',
+        type=int
+    )
     return parser.parse_args()
 
 
@@ -136,19 +165,22 @@ def main() -> None:
     if args.projection == 'network':
         learner.learn(
             nbsol=args.nbsol, display=True, lp_solver=args.lpsolver,
-            max_error=0.3, max_gap=10, timelimit=args.timelimit,
+            max_error=args.max_error, max_gap=args.max_gap,
+            max_clause=args.max_clause, timelimit=args.timelimit,
             subsetmin=args.optimisation == 'subsetmin'
         )
     elif args.projection == 'node':
         learner.learn_per_node(
             nbsol=args.nbsol, display=True, lp_solver=args.lpsolver,
-            max_error=0.3, max_gap=10, timelimit=args.timelimit,
+            max_error=args.max_error, max_gap=args.max_gap,
+            max_clause=args.max_clause, timelimit=args.timelimit,
             subsetmin=args.optimisation == 'subsetmin'
         )
     elif args.projection == 'trace':
         learner.learn_per_trace(
             nbsol=args.nbsol, display=True, lp_solver=args.lpsolver,
-            max_error=0.3, max_gap=10, timelimit=args.timelimit,
+            max_error=args.max_error, max_gap=args.max_gap,
+            max_clause=args.max_clause, timelimit=args.timelimit,
             subsetmin=args.optimisation == 'subsetmin'
         )
 
