@@ -102,7 +102,7 @@ class MerrinLearner:
     def __read_config(self: MerrinLearner,
                       kwargs: dict[str, Any]) -> MerrinLearner.__Config:
         # ~ Parse arguments
-        max_clause: int = 20
+        max_clause: int = kwargs.get('max_clause', 20)
         max_gap: int = kwargs.get('max_gap', 10)
         max_error: float = kwargs.get('max_error', 0.1)
         lp_epsilon: float = kwargs.get('lp_epsilon', 10**-5)
@@ -257,13 +257,13 @@ class MerrinLearner:
         if len(model.symbols(shown=True)) == 1:
             for atom in model.symbols(shown=True):
                 assert atom.name == 'show' and len(atom.arguments) == 1
-                results.setdefault(atom.arguments[0].string, []).append('1')
+                self.__record_rule(results, atom.arguments[0].string, '1')
             return
 
         rules: dict[str, str] = self.__parse_clauses(model)
         assert len(rules) == 1
         for node, rule in rules.items():
-            results.setdefault(node, []).append(rule)
+            self.__record_rule(results, node, rule)
 
     # --------------------------------------------------------------------------
     # Learn: `Trace` Projection
@@ -298,13 +298,15 @@ class MerrinLearner:
         results: list[dict[str, list[str]]] = []
         self.__solve_asp(ctl, config.timelimit,
                          lambda m: self.__on_model_trace(results, m,
-                                                         display, subsetmin))
+                                                         display, subsetmin,
+                                                         config.timelimit))
         return results
 
     def __on_model_trace(self: MerrinLearner,
                          results: list[dict[str, list[str]]],
                          model: Model, display: bool = False,
-                         subsetmin: bool = False) -> None:
+                         subsetmin: bool = False,
+                         timelimit: int = -1) -> None:
         if not model.optimality_proven:
             return
         # ~ Prohibit the trace
@@ -316,7 +318,8 @@ class MerrinLearner:
                     tuple[list[tuple[str, bool]],
                           list[tuple[str, bool]]]] = self.__parse_trace(model)
         # ~ Learn the BN compatible with the trace
-        rules: dict[str, list[str]] = self.__learn_from_trace(trace, subsetmin)
+        rules: dict[str, list[str]] = self.__learn_from_trace(trace, subsetmin,
+                                                               timelimit)
         results.append(rules)
         # ~ Display the result
         if display:
@@ -341,7 +344,8 @@ class MerrinLearner:
                            trace: dict[tuple[str, int],
                                        tuple[list[tuple[str, bool]],
                                              list[tuple[str, bool]]]],
-                           subsetmin: bool = False) -> dict[str, list[str]]:
+                           subsetmin: bool = False,
+                           timelimit: int = -1) -> dict[str, list[str]]:
         # ~ Build the ASP program
         options: list[str] = self.__get_options(0, subsetmin)
         ctl = Control(options)
@@ -358,7 +362,7 @@ class MerrinLearner:
         ctl.ground([('base', [])])
         #   | Solve the ASP program
         results: dict[str, list[str]] = {}
-        self.__solve_asp(ctl, -1,
+        self.__solve_asp(ctl, timelimit,
                          lambda m: self.__on_model_trace_learn(results, m))
         # ~ Return the results
         return results
@@ -369,13 +373,20 @@ class MerrinLearner:
         if len(model.symbols(shown=True)) == 1:
             for atom in model.symbols(shown=True):
                 assert atom.name == 'show' and len(atom.arguments) == 1
-                results.setdefault(atom.arguments[0].string, []).append('1')
+                self.__record_rule(results, atom.arguments[0].string, '1')
             return
 
         rules: dict[str, str] = self.__parse_clauses(model)
         assert len(rules) == 1
         for node, rule in rules.items():
-            results.setdefault(node, []).append(rule)
+            self.__record_rule(results, node, rule)
+
+    @staticmethod
+    def __record_rule(results: dict[str, list[str]], node: str,
+                      rule: str) -> None:
+        rules: list[str] = results.setdefault(node, [])
+        if rule not in rules:
+            rules.append(rule)
 
     # ==========================================================================
     # Clingo output parsing
@@ -401,7 +412,7 @@ class MerrinLearner:
             rule_list: list[str] = []
             for c in sorted(n_clauses):
                 assert len(n_clauses[c]) > 0
-                clause: str = ' & '.join(n_clauses[c])
+                clause: str = ' & '.join(sorted(n_clauses[c]))
                 if len(n_clauses[c]) > 1:
                     clause = f'({clause})'
                 rule_list.append(clause)

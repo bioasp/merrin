@@ -2,13 +2,13 @@
 # Imports
 # ==============================================================================
 from __future__ import annotations
+
+from enum import Enum
+from json import load
+from os.path import dirname, join
 from typing import Literal
 
-from os.path import dirname
-from json import load
-from enum import Enum
 from pandas import DataFrame, read_csv
-
 
 # ==============================================================================
 # Type Association
@@ -72,7 +72,7 @@ class Observation:
                 # --------------------------------------------------------------
                 # Load and clean up the DataFrame
                 # --------------------------------------------------------------
-                csv_file: str = instance_dir + '/' + ts['file']
+                csv_file: str = join(instance_dir, ts['file'])
                 observations_df: DataFrame = \
                     read_csv(csv_file).set_index('Time')
                 # --------------------------------------------------------------

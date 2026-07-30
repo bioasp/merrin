@@ -197,8 +197,12 @@ def __instantiate_observation(mn: MetabolicNetwork, observation: Observation,
     data = data.copy()
     for r, (rf, rr) in mn.previously_reversible_reactions().items():
         if r in data.columns:
-            data[rf] = data.loc[:, r].apply(lambda x:  x if x > 0 else 0)
-            data[rr] = data.loc[:, r].apply(lambda x: -x if x < 0 else 0)
+            data[rf] = data.loc[:, r].apply(
+                lambda x: x if isnan(x) else (x if x > 0 else 0)
+            )
+            data[rr] = data.loc[:, r].apply(
+                lambda x: x if isnan(x) else (-x if x < 0 else 0)
+            )
             data.drop(columns=[r], inplace=True)
     # --------------------------------------------------------------------------
     # Observation of each timestep
@@ -276,6 +280,8 @@ def __instantiate_bounds(ident: tuple[str, int], observation: Observation,
             assert 'biomass' in timesteps[0].keys()
             w: float = timesteps[0][m]
             biomass: float = timesteps[0]['biomass']
+            if biomass <= 0:
+                continue
             uptake: float = max(0, __compute_uptake(w, biomass, tau=tau))
             if uptake < ub:
                 bounds_asp.append(Template.TimeSeries.observation_exchange(

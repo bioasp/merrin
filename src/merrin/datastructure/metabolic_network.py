@@ -98,13 +98,24 @@ class MetabolicNetwork:
     # ==========================================================================
     def set_bound(self: MetabolicNetwork, r: str,
                   lb: float, ub: float) -> None:
-        for r_ in self.__reversible_reactions_mapping.get(r, [r]):
-            assert r_ in self.__bounds
-            self.__bounds[r_] = (lb, ub)
+        mapping: tuple[str, str] | None = \
+            self.__reversible_reactions_mapping.get(r)
+        if mapping is None:
+            assert r in self.__bounds
+            self.__bounds[r] = (lb, ub)
+            return
+        rf, rr = mapping
+        assert rf in self.__bounds and rr in self.__bounds
+        self.__bounds[rf], self.__bounds[rr] = self.__split_bound(lb, ub)
 
     # ==========================================================================
     # Auxiliary functions
     # ==========================================================================
+    @staticmethod
+    def __split_bound(lb: float, ub: float) \
+            -> tuple[tuple[float, float], tuple[float, float]]:
+        return (0, max(0, ub)), (0, max(0, -lb))
+
     def to_irreversible(self: MetabolicNetwork) -> MetabolicNetwork:
         def __irreversible_renaming(r: str) -> tuple[str, str]:
             return f'{r}_forward', f'{r}_reverse'
@@ -141,8 +152,8 @@ class MetabolicNetwork:
             # ------------------------------------------------------------------
             # Update bounds
             # ------------------------------------------------------------------
-            self.__bounds[rf] = (0, self.__bounds[r][1])
-            self.__bounds[rr] = (0, -self.__bounds[r][0])
+            lb, ub = self.__bounds[r]
+            self.__bounds[rf], self.__bounds[rr] = self.__split_bound(lb, ub)
             del self.__bounds[r]
             # ------------------------------------------------------------------
             # Update stoichiometry

@@ -71,7 +71,7 @@ def parse() -> Namespace:
         type=int
     )
     parser.add_argument(
-        '--optimisation',
+        '--optimisation', '--optimization',
         help='Select optimisation mode:' +
              ' all networks or subset minimal ones only (default: subsetmin)',
         required=False,
