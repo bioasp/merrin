@@ -316,18 +316,10 @@ def instantiate_parameters(max_gap: int, max_error: float,
 # ==============================================================================
 # Traces
 # ==============================================================================
-def instantiate_trace(trace: dict[tuple[str, int],
-                                  tuple[list[tuple[str, bool]],
-                                        list[tuple[str, bool]]]]) -> list[str]:
-    trace_asp: list[str] = [Template.header('Traces', '=')]
-    for time, (inputs, outputs) in trace.items():
-        trace_asp.append(Template.header(f'Time: {time}', '-'))
-        trace_asp.extend([
-            Template.Trace.input(time, n, 1 if v else -1)
-            for n, v in inputs
-        ])
-        trace_asp.extend([
-            Template.Trace.output(time, n, 1 if v else -1)
-            for n, v in outputs
-        ])
-    return trace_asp
+def instantiate_trace_domain(nbobs: dict[str, int], max_gap: int) -> list[str]:
+    domain_asp: list[str] = [Template.header('Trace domain', '=')]
+    domain_asp.extend(
+        Template.Trace.experiment_max_time(e, n + max_gap)
+        for e, n in sorted(nbobs.items())
+    )
+    return domain_asp

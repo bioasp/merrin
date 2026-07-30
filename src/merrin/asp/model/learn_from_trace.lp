@@ -1,5 +1,22 @@
 #program base.
 % ==============================================================================
+% Trace domain (multi-shot: this program is grounded once and reused for
+% every trace via #external toggling in MerrinLearner.__learn_from_trace,
+% instead of re-grounding the whole rule search space per trace)
+% ==============================================================================
+
+% Every simulation-time index a trace can use for a given experiment,
+% bounded by `exp/2` (nbObs(E) + max_gap, see instantiate_trace_domain).
+timedom((E,ID)) :- exp(E,MaxT), ID=1..MaxT.
+
+% Every entity that can appear as a regulator or a regulated node.
+entity(N) :- in(N,_,_).
+entity(N) :- in(_,N,_).
+
+#external inp(T,N,V) : timedom(T), entity(N), V=(-1;1).
+#external out(T,N,V) : timedom(T), entity(N), V=(-1;1).
+
+% ==============================================================================
 % Regulatory functions
 % ==============================================================================
 

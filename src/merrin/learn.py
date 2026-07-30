@@ -2,24 +2,24 @@
 # Imports
 # ==============================================================================
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Literal, Iterable, Callable
+from typing import Any, Callable, Iterable, Literal
 
-from clingo import Control, Model
-
+from clingo import Control, Function, Model, Number, String, Symbol
 from merrinasp.theory.language import THEORY_LANGUAGE, rewrite
 from merrinasp.theory.propagator import LpPropagator
 
-from merrin.datastructure import MetabolicNetwork, Observation
 from merrin.asp import (
+    ASP_MODEL_LEARN,
+    ASP_MODEL_LEARN_FROM_TRACE,
     instantiate_mn,
-    instantiate_pkn,
     instantiate_observations,
     instantiate_parameters,
-    instantiate_trace,
-    ASP_MODEL_LEARN,
-    ASP_MODEL_LEARN_FROM_TRACE
+    instantiate_pkn,
+    instantiate_trace_domain,
 )
+from merrin.datastructure import MetabolicNetwork, Observation
 
 
 # ==============================================================================
@@ -50,6 +50,12 @@ class MerrinLearner:
         # ~ Cache
         self.__pkn: set[tuple[str, int, str]] = set()
         self.__renamed_reactions: dict[str, tuple[str, str]] = {}
+        self.__nbobs: dict[str, int] = {}
+        # ~ Trace-projection solver, grounded once and reused (via
+        # #external toggling) across every trace discovered by
+        # `learn_per_trace` -- see __init_trace_checker/__learn_from_trace.
+        self.__trace_ctl: Control | None = None
+        self.__trace_active_externals: list[Symbol] = []
 
     # ==========================================================================
     # Loaders
@@ -58,6 +64,7 @@ class MerrinLearner:
                       objective: str, pkn: Iterable[tuple[str, int, str]],
                       observations: Iterable[Observation],
                       epsilon: float = 10**-9) -> None:
+        observations = list(observations)
         # ~ Pre-process Metabolic Network
         mn.to_irreversible()
         self.__renamed_reactions = {
@@ -73,6 +80,12 @@ class MerrinLearner:
             for u_ in mn.previously_reversible_reactions().get(u, (u,)):
                 for v_ in mn.previously_reversible_reactions().get(v, (v,)):
                     self.__pkn.add((u_, s, v_))
+        # ~ Number of observed timesteps per experiment (used to bound the
+        # #external inp/out domain in model/learn_from_trace.lp)
+        self.__nbobs = {
+            observation.id: len(observation.data.index)
+            for observation in observations
+        }
 
         # ~ Build ASP constraints
         self.__build_asp(mn, objective, observations, epsilon)
@@ -294,13 +307,42 @@ class MerrinLearner:
                 for n in sorted(nodes)
             ]
             print(','.join(columns), flush=True)
+        # ~ Build the trace-checker once: grounded here, then reused (via
+        # #external toggling in __learn_from_trace) for every trace found
+        # below, instead of re-grounding the whole rule search space per
+        # trace. The `exp/2` domain facts are only consumed by
+        # learn_from_trace.lp, so they're added here rather than in
+        # __build_asp_pkn (shared by the network/node projections, which
+        # have no use for them).
+        self.__constraints_extended.extend(
+            instantiate_trace_domain(self.__nbobs, config.max_gap)
+        )
+        self.__trace_ctl = self.__init_trace_checker(subsetmin)
+        self.__trace_active_externals = []
         # ~ Solve
         results: list[dict[str, list[str]]] = []
-        self.__solve_asp(ctl, config.timelimit,
-                         lambda m: self.__on_model_trace(results, m,
-                                                         display, subsetmin,
-                                                         config.timelimit))
+        try:
+            self.__solve_asp(ctl, config.timelimit,
+                             lambda m: self.__on_model_trace(results, m,
+                                                             display, subsetmin,
+                                                             config.timelimit))
+        finally:
+            self.__trace_ctl = None
+            self.__trace_active_externals = []
         return results
+
+    def __init_trace_checker(self: MerrinLearner, subsetmin: bool) -> Control:
+        options: list[str] = self.__get_options(0, subsetmin)
+        ctl = Control(options)
+        ctl.load(ASP_MODEL_LEARN_FROM_TRACE)
+        ctl.add("base", [], '\n'.join(self.__constraints_extended))
+        ctl.add("base", [], '\n'.join([
+                '1 { show(N): in(_,N,_) } 1.',
+                '#show.',
+                '#show show/1.',
+                '#show clause(N,C,A,V): clause(N,C,A,V), show(N).']))
+        ctl.ground([('base', [])])
+        return ctl
 
     def __on_model_trace(self: MerrinLearner,
                          results: list[dict[str, list[str]]],
@@ -318,8 +360,10 @@ class MerrinLearner:
                     tuple[list[tuple[str, bool]],
                           list[tuple[str, bool]]]] = self.__parse_trace(model)
         # ~ Learn the BN compatible with the trace
-        rules: dict[str, list[str]] = self.__learn_from_trace(trace, subsetmin,
-                                                               timelimit)
+        assert self.__trace_ctl is not None
+        rules: dict[str, list[str]] = self.__learn_from_trace(
+            self.__trace_ctl, trace, timelimit
+        )
         results.append(rules)
         # ~ Display the result
         if display:
@@ -340,26 +384,30 @@ class MerrinLearner:
                     [(str(symbol), False)] + nodes_true
                 )
 
-    def __learn_from_trace(self: MerrinLearner,
+    @staticmethod
+    def __trace_symbol(kind: str, time: tuple[str, int], node: str,
+                       value: bool) -> Symbol:
+        time_symbol: Symbol = Function('', [String(time[0]), Number(time[1])])
+        return Function(kind, [time_symbol, String(node),
+                               Number(1 if value else -1)])
+
+    def __learn_from_trace(self: MerrinLearner, ctl: Control,
                            trace: dict[tuple[str, int],
                                        tuple[list[tuple[str, bool]],
                                              list[tuple[str, bool]]]],
-                           subsetmin: bool = False,
                            timelimit: int = -1) -> dict[str, list[str]]:
-        # ~ Build the ASP program
-        options: list[str] = self.__get_options(0, subsetmin)
-        ctl = Control(options)
-        ctl.load(ASP_MODEL_LEARN_FROM_TRACE)
-        ctl.add("base", [], '\n'.join(self.__constraints_extended))
-        ctl.add("base", [], '\n'.join(instantiate_trace(trace)))
-        # ~ For each node in the PKN with input interactions
-        ctl.add("base", [], '\n'.join([
-                '1 { show(N): in(_,N,_) } 1.',
-                '#show.',
-                '#show show/1.',
-                '#show clause(N,C,A,V): clause(N,C,A,V), show(N).']))
-        #   | Ground the ASP program
-        ctl.ground([('base', [])])
+        # ~ Reset the externals activated for the previous trace (if any),
+        # then activate exactly the ones for this trace. This reuses the
+        # already-grounded rule search space instead of re-grounding it.
+        for symbol in self.__trace_active_externals:
+            ctl.assign_external(symbol, False)
+        self.__trace_active_externals = []
+        for time, (inputs, outputs) in trace.items():
+            for kind, entries in (('inp', inputs), ('out', outputs)):
+                for node, value in entries:
+                    symbol: Symbol = self.__trace_symbol(kind, time, node, value)
+                    ctl.assign_external(symbol, True)
+                    self.__trace_active_externals.append(symbol)
         #   | Solve the ASP program
         results: dict[str, list[str]] = {}
         self.__solve_asp(ctl, timelimit,

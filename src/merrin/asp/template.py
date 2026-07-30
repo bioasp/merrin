@@ -165,9 +165,5 @@ class Trace:
     # Template ASP
     # --------------------------------------------------------------------------
     @classmethod
-    def input(cls, t: tuple[str, int], n: str, v: int) -> str:
-        return f'inp(("{t[0]}", {t[1]}), "{n}", {v}).'
-
-    @classmethod
-    def output(cls, t: tuple[str, int], n: str, v: int) -> str:
-        return f'out(("{t[0]}", {t[1]}), "{n}", {v}).'
+    def experiment_max_time(cls, experiment: str, max_time: int) -> str:
+        return f'exp("{experiment}", {max_time}).'

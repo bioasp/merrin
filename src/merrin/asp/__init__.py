@@ -4,12 +4,12 @@
 from os import path
 
 from merrin.asp.instantiater import (
-    instantiate_parameters,
-    instantiate_networks,
-    instantiate_mn,
-    instantiate_pkn,
-    instantiate_observations,
-    instantiate_trace
+    instantiate_mn,  # noqa
+    instantiate_networks,  # noqa
+    instantiate_observations,  # noqa
+    instantiate_parameters,  # noqa
+    instantiate_pkn,  # noqa
+    instantiate_trace_domain,  # noqa
 )
 
 # ==============================================================================
